@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import json
+import re
+from threading import Lock
+from typing import Any
+
+from graphql_ai.core.config import AppSettings, get_settings
+from graphql_ai.core.protocols import SchemaContextProvider
+from graphql_ai.domain import GeneratedGraphQLSample
+from graphql_ai.llm.base import LLMClient
+from graphql_ai.llm.ollama_client import OllamaClient
+from graphql_ai.rag.vector_store import SchemaVectorStore
+
+
+GRAPHQL_SYSTEM_PROMPT = """You are a GraphQL expert.
+
+Generate a valid GraphQL query or mutation from the provided schema context.
+
+Rules:
+- Use only fields and arguments that exist in the schema.
+- Include all fields for the requested response type.
+- Expand nested objects and lists using their schema fields.
+- Use variables for argument values.
+- Return only two fenced code blocks with no labels or headings: first GraphQL operation, second Variables JSON.
+"""
+
+GRAPHQL_USER_PROMPT_TEMPLATE = """Schema:
+
+{schema_context}
+
+Request:
+
+{user_request}
+
+Return:
+1. GraphQL operation in a code block
+2. Variables JSON in a code block
+"""
+
+VARIABLE_DEFINITION = re.compile(r"\$([_A-Za-z][_0-9A-Za-z]*)\s*:\s*([!\[\]_0-9A-Za-z]+)")
+
+
+def build_default_sample_request(target: str) -> str:
+    normalized_target = target.strip().replace("-", " ")
+    if not normalized_target:
+        raise ValueError("Target must not be empty.")
+
+    if normalized_target.lower() == "country":
+        return (
+            "Generate a sample GraphQL query named CountryQuery for a country by code. "
+            "Use a variable named code with type ID. "
+            "Include all available Country fields, including continent and languages. "
+            "Return Variables JSON with code set to US."
+        )
+
+    return f"Generate a sample query for {normalized_target}"
+
+
+class SampleQueryService:
+    def __init__(
+        self,
+        settings: AppSettings | None = None,
+        llm_client: LLMClient | None = None,
+        schema_context_provider: SchemaContextProvider | None = None,
+        rebuild_index: bool = False,
+        allow_downloads: bool = False,
+    ) -> None:
+        self.settings = settings or get_settings()
+        self.schema_context_provider = schema_context_provider or SchemaVectorStore(
+            settings=self.settings,
+            rebuild=rebuild_index,
+            allow_downloads=allow_downloads,
+        )
+        self.llm_client = llm_client or OllamaClient(settings=self.settings)
+        self._generation_lock = Lock()
+
+    def generate(self, user_request: str) -> GeneratedGraphQLSample:
+        with self._generation_lock:
+            schema_context = self.schema_context_provider.retrieve_schema_context(user_request)
+            raw_response = self.llm_client.generate(self._build_prompt(schema_context, user_request))
+
+        return parse_generated_sample(raw_response)
+
+    def _build_prompt(self, schema_context: str, user_request: str) -> str:
+        user_prompt = GRAPHQL_USER_PROMPT_TEMPLATE.format(
+            schema_context=schema_context,
+            user_request=user_request,
+        )
+        return f"{GRAPHQL_SYSTEM_PROMPT}\n\n{user_prompt}"
+
+
+def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:
+    code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
+    operation = code_blocks[0].strip() if code_blocks else raw_response.strip()
+    variables: dict[str, Any] = {}
+
+    if len(code_blocks) > 1:
+        variables_text = code_blocks[1].strip()
+        if variables_text:
+            try:
+                parsed_variables = json.loads(variables_text)
+            except json.JSONDecodeError:
+                parsed_variables = {"_raw": variables_text}
+
+            if isinstance(parsed_variables, dict):
+                variables = parsed_variables
+            else:
+                variables = {"value": parsed_variables}
+
+    if not variables:
+        variables = _infer_variables_from_operation(operation)
+
+    return GeneratedGraphQLSample(
+        operation=operation,
+        variables=variables,
+        raw_response=raw_response,
+    )
+
+
+def _infer_variables_from_operation(operation: str) -> dict[str, Any]:
+    inferred_variables: dict[str, Any] = {}
+
+    for variable_name, type_ref in VARIABLE_DEFINITION.findall(operation):
+        inferred_variables[variable_name] = _sample_value_for_graphql_type(variable_name, type_ref)
+
+    return inferred_variables
+
+
+def _sample_value_for_graphql_type(variable_name: str, type_ref: str) -> Any:
+    base_type = re.sub(r"[\[\]!]", "", type_ref)
+
+    if type_ref.startswith("["):
+        return [_sample_value_for_graphql_type(variable_name, base_type)]
+
+    if base_type == "Boolean":
+        return True
+    if base_type == "Float":
+        return 1.0
+    if base_type == "Int":
+        return 1
+    if base_type == "ID":
+        return "US" if "code" in variable_name.lower() else "example-id"
+
+    return "example"

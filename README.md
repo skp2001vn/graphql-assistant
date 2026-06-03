@@ -1,8 +1,10 @@
-# GraphQL Local RAG Demo
+# GraphQL AI Examples
 
 This is a small educational app for generating sample GraphQL calls from a local schema.
 
-The app keeps RAG in the flow on purpose:
+The current implementation uses RAG. The structure is intentionally open for adding other GraphQL AI capabilities later, such as agents, planning workflows, inference optimization, model routing, and prompt evaluation.
+
+The current RAG flow:
 
 1. Reads `resources/schema.graphql`.
 2. Splits the SDL into schema chunks.
@@ -18,7 +20,7 @@ Because `resources/schema.graphql` is rarely updated, the Chroma index is cached
 Run this once while online:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
@@ -36,13 +38,13 @@ On macOS, use `brew install --cask ollama-app`. The `brew install ollama` formul
 
 ```bash
 source .venv/bin/activate
-python graphql_rag_local.py "Generate a sample query for a country by code"
+.venv/bin/python -m graphql_ai.cli "Generate a sample query for a country by code"
 ```
 
 Example request:
 
 ```bash
-python graphql_rag_local.py "Generate a sample query for all countries"
+.venv/bin/python -m graphql_ai.cli "Generate a sample query for all countries"
 ```
 
 The first run builds the local Chroma index. Later runs reuse it automatically. If you edit `resources/schema.graphql`, the app detects the schema change and rebuilds the index.
@@ -50,7 +52,7 @@ The first run builds the local Chroma index. Later runs reuse it automatically. 
 To force a rebuild:
 
 ```bash
-python graphql_rag_local.py --rebuild "Generate a sample query for a country by code"
+.venv/bin/python -m graphql_ai.cli --rebuild "Generate a sample query for a country by code"
 ```
 
 ## Run The API
@@ -59,7 +61,7 @@ Start the FastAPI server:
 
 ```bash
 source .venv/bin/activate
-uvicorn graphql_rag_api:app --host 0.0.0.0 --port 8080
+uvicorn graphql_ai.main:app --host 0.0.0.0 --port 8080
 ```
 
 Call the sample-query endpoint:
@@ -80,7 +82,7 @@ Replace `94081` with the PID shown by `lsof`.
 Or run the API on a different port:
 
 ```bash
-uvicorn graphql_rag_api:app --host 0.0.0.0 --port 8081
+uvicorn graphql_ai.main:app --host 0.0.0.0 --port 8081
 curl http://localhost:8081/sample/country
 ```
 
@@ -120,13 +122,43 @@ You can also pass a custom request:
 curl "http://localhost:8080/sample/country?request=Generate%20a%20sample%20query%20for%20all%20countries"
 ```
 
-The API follows the same RAG flow as the CLI. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
+The API currently uses the RAG technique. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
+
+## Project Structure
+
+The application is split into layers instead of keeping everything in one script:
+
+```text
+graphql_ai/
+  api/
+    routes.py          # FastAPI controllers/routes
+    schemas.py         # Pydantic request/response models
+  core/
+    config.py          # Environment-backed application settings
+    protocols.py       # Protocol contracts used by services
+    responses.py       # Shared response formatting
+  llm/
+    base.py            # LLM client protocol
+    ollama_client.py   # Ollama HTTP client
+  rag/
+    embeddings.py      # Local embedding model loading
+    schema_chunks.py   # GraphQL SDL parsing/chunking
+    vector_store.py    # Chroma indexing and retrieval
+  services/
+    sample_query_service.py # Business service for sample-query generation
+  cli.py               # Command-line entry point
+  main.py              # FastAPI app factory
+```
 
 Design notes:
 
-- `graphql_rag_local.py` owns the reusable RAG and Ollama generation logic.
-- `graphql_rag_api.py` owns only the HTTP API layer.
-- The API uses typed Pydantic response models.
+- API routes stay thin and delegate work to the service layer.
+- Pydantic schemas define the public HTTP response contract.
+- RAG is represented by the `graphql_ai/rag` module, but it is only the current schema-context approach.
+- Future approaches such as agents or inference optimization can be added as normal packages when they are implemented.
+- The sample-query service depends on a schema-context protocol, so RAG can be swapped or composed with another approach.
+- Ollama access is isolated behind a client class and an LLM protocol.
+- Application settings are centralized in `graphql_ai/core/config.py`.
 - The Chroma collection is initialized once during FastAPI startup instead of being rebuilt per request.
 - Local generation is serialized with a lock because the embedding model and Ollama call are expensive shared resources.
 
@@ -183,7 +215,7 @@ type Language {
 To use a different schema, update `resources/schema.graphql` or set `GRAPHQL_SCHEMA_FILE`:
 
 ```bash
-GRAPHQL_SCHEMA_FILE=resources/other-schema.graphql python graphql_rag_local.py "Generate a sample query"
+GRAPHQL_SCHEMA_FILE=resources/other-schema.graphql .venv/bin/python -m graphql_ai.cli "Generate a sample query"
 ```
 
 ## PyCharm GraphQL Support
