@@ -65,7 +65,7 @@ uvicorn graphql_rag_api:app --host 0.0.0.0 --port 8080
 Call the sample-query endpoint:
 
 ```bash
-curl http://localhost:8080/generatesamplequery/country
+curl http://localhost:8080/sample/country
 ```
 
 If port `8080` is already in use, either stop the existing server or use another port:
@@ -81,7 +81,7 @@ Or run the API on a different port:
 
 ```bash
 uvicorn graphql_rag_api:app --host 0.0.0.0 --port 8081
-curl http://localhost:8081/generatesamplequery/country
+curl http://localhost:8081/sample/country
 ```
 
 The response is JSON:
@@ -117,7 +117,7 @@ The response is JSON:
 You can also pass a custom request:
 
 ```bash
-curl "http://localhost:8080/generatesamplequery/country?request=Generate%20a%20sample%20query%20for%20all%20countries"
+curl "http://localhost:8080/sample/country?request=Generate%20a%20sample%20query%20for%20all%20countries"
 ```
 
 The API follows the same RAG flow as the CLI. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.

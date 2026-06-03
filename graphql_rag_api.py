@@ -79,7 +79,7 @@ def health() -> HealthResponse:
 
 
 @app.get(
-    "/generatesamplequery/{target}",
+    "/sample/{target}",
     response_model=SampleQueryResponse,
 )
 def generate_sample_query(
