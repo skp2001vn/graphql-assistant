@@ -53,6 +53,7 @@ DEFINITION_START = re.compile(
     r"(?:\s+([_A-Za-z][_0-9A-Za-z]*))?"
 )
 FIELD_START = re.compile(r"^\s*([_A-Za-z][_0-9A-Za-z]*)\s*(?:\(|:)")
+VARIABLE_DEFINITION = re.compile(r"\$([_A-Za-z][_0-9A-Za-z]*)\s*:\s*([!\[\]_0-9A-Za-z]+)")
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,13 @@ class SchemaChunk:
     kind: str
     name: str
     text: str
+
+
+@dataclass(frozen=True)
+class GeneratedGraphQLSample:
+    operation: str
+    variables: dict[str, Any]
+    raw_response: str
 
 
 _embedding_model: tuple[str, Any] | None = None
@@ -441,6 +449,61 @@ def generate_graphql_sample(
         user_request=user_request,
     )
     return call_ollama(f"{GRAPHQL_SYSTEM_PROMPT}\n\n{user_prompt}")
+
+
+def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:
+    code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
+    operation = code_blocks[0].strip() if code_blocks else raw_response.strip()
+    variables: dict[str, Any] = {}
+
+    if len(code_blocks) > 1:
+        variables_text = code_blocks[1].strip()
+        if variables_text:
+            try:
+                parsed_variables = json.loads(variables_text)
+            except json.JSONDecodeError:
+                parsed_variables = {"_raw": variables_text}
+
+            if isinstance(parsed_variables, dict):
+                variables = parsed_variables
+            else:
+                variables = {"value": parsed_variables}
+
+    if not variables:
+        variables = infer_variables_from_operation(operation)
+
+    return GeneratedGraphQLSample(
+        operation=operation,
+        variables=variables,
+        raw_response=raw_response,
+    )
+
+
+def infer_variables_from_operation(operation: str) -> dict[str, Any]:
+    inferred_variables: dict[str, Any] = {}
+
+    for variable_name, type_ref in VARIABLE_DEFINITION.findall(operation):
+        inferred_variables[variable_name] = sample_value_for_graphql_type(variable_name, type_ref)
+
+    return inferred_variables
+
+
+def sample_value_for_graphql_type(variable_name: str, type_ref: str) -> Any:
+    base_type = re.sub(r"[\[\]!]", "", type_ref)
+
+    if type_ref.startswith("["):
+        return [sample_value_for_graphql_type(variable_name, base_type)]
+
+    if base_type == "Boolean":
+        return True
+    if base_type == "Float":
+        return 1.0
+    if base_type == "Int":
+        return 1
+    if base_type == "ID":
+        return "US" if "code" in variable_name.lower() else "example-id"
+
+    return "example"
 
 
 def parse_args() -> argparse.Namespace:

@@ -1,3 +1,5 @@
 chromadb
+fastapi
 requests
 sentence-transformers
+uvicorn[standard]

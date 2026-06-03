@@ -53,6 +53,83 @@ To force a rebuild:
 python graphql_rag_local.py --rebuild "Generate a sample query for a country by code"
 ```
 
+## Run The API
+
+Start the FastAPI server:
+
+```bash
+source .venv/bin/activate
+uvicorn graphql_rag_api:app --host 0.0.0.0 --port 8080
+```
+
+Call the sample-query endpoint:
+
+```bash
+curl http://localhost:8080/generatesamplequery/country
+```
+
+If port `8080` is already in use, either stop the existing server or use another port:
+
+```bash
+lsof -nP -iTCP:8080 -sTCP:LISTEN
+kill 94081
+```
+
+Replace `94081` with the PID shown by `lsof`.
+
+Or run the API on a different port:
+
+```bash
+uvicorn graphql_rag_api:app --host 0.0.0.0 --port 8081
+curl http://localhost:8081/generatesamplequery/country
+```
+
+The response is JSON:
+
+```json
+{
+  "operation": [
+    "query CountryQuery($code: ID!) {",
+    "  country(code: $code) {",
+    "    code",
+    "    name",
+    "    native",
+    "    emoji",
+    "    capital",
+    "    currency",
+    "    continent {",
+    "      code",
+    "      name",
+    "    }",
+    "    languages {",
+    "      code",
+    "      name",
+    "    }",
+    "  }",
+    "}"
+  ],
+  "variables": {
+    "code": "US"
+  }
+}
+```
+
+You can also pass a custom request:
+
+```bash
+curl "http://localhost:8080/generatesamplequery/country?request=Generate%20a%20sample%20query%20for%20all%20countries"
+```
+
+The API follows the same RAG flow as the CLI. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
+
+Design notes:
+
+- `graphql_rag_local.py` owns the reusable RAG and Ollama generation logic.
+- `graphql_rag_api.py` owns only the HTTP API layer.
+- The API uses typed Pydantic response models.
+- The Chroma collection is initialized once during FastAPI startup instead of being rebuilt per request.
+- Local generation is serialized with a lock because the embedding model and Ollama call are expensive shared resources.
+
 ## Defaults
 
 ```bash
