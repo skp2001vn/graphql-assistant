@@ -6,6 +6,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class SchemaChunk:
+    """A chunk of GraphQL SDL prepared for retrieval."""
+
     id: str
     source: str
     kind: str
@@ -15,7 +17,8 @@ class SchemaChunk:
 
 @dataclass(frozen=True)
 class GeneratedGraphQLSample:
+    """Generated GraphQL operation, variables, and raw model text."""
+
     operation: str
     variables: dict[str, Any]
     raw_response: str
-

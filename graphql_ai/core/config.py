@@ -16,6 +16,8 @@ def _read_bool_env(name: str, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class AppSettings:
+    """Environment-backed application settings."""
+
     schema_file: Path = field(
         default_factory=lambda: Path(os.getenv("GRAPHQL_SCHEMA_FILE", "resources/schema.graphql"))
     )
@@ -33,5 +35,5 @@ class AppSettings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
+    """Return cached application settings for the current process."""
     return AppSettings()
-

@@ -10,11 +10,13 @@ router = APIRouter()
 
 
 def get_sample_service(request: Request) -> SampleQueryService:
+    """Return the application-scoped sample-query service."""
     return request.app.state.sample_service
 
 
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
+    """Report API health for local development and smoke tests."""
     return HealthResponse(status="ok")
 
 
@@ -28,6 +30,7 @@ def generate_sample_query(
         description="Optional custom natural-language request.",
     ),
 ) -> SampleQueryResponse:
+    """Generate a sample GraphQL query for a schema target."""
     sample_request = user_request or build_default_sample_request(target)
     sample_service = get_sample_service(request)
 

@@ -16,6 +16,7 @@ FIELD_START = re.compile(r"^\s*([_A-Za-z][_0-9A-Za-z]*)\s*(?:\(|:)")
 
 
 def read_schema_file(schema_file: Path) -> tuple[str, str]:
+    """Read a local GraphQL SDL file and return its source path and text."""
     if not schema_file.exists():
         raise FileNotFoundError(f"Local GraphQL schema file not found: {schema_file}")
 
@@ -27,6 +28,7 @@ def read_schema_file(schema_file: Path) -> tuple[str, str]:
 
 
 def load_schema_chunks(schema_file: Path) -> list[SchemaChunk]:
+    """Load and chunk a local GraphQL schema file."""
     source, schema_text = read_schema_file(schema_file)
     chunks = chunk_graphql_schema(schema_text, source)
 
@@ -37,6 +39,7 @@ def load_schema_chunks(schema_file: Path) -> list[SchemaChunk]:
 
 
 def chunk_graphql_schema(schema_text: str, source: str) -> list[SchemaChunk]:
+    """Split GraphQL SDL into retrievable schema chunks."""
     matches = list(DEFINITION_START.finditer(schema_text))
 
     if not matches:
@@ -80,6 +83,7 @@ def chunk_graphql_schema(schema_text: str, source: str) -> list[SchemaChunk]:
 
 
 def chunk_root_operation(definition_text: str, source: str, operation_name: str) -> list[SchemaChunk]:
+    """Split Query or Mutation definitions into field-level chunks."""
     body = extract_braced_body(definition_text)
     field_chunks = []
 
@@ -104,6 +108,7 @@ def chunk_root_operation(definition_text: str, source: str, operation_name: str)
 
 
 def extract_braced_body(definition_text: str) -> str:
+    """Extract the text inside the outermost SDL definition braces."""
     start = definition_text.find("{")
     end = definition_text.rfind("}")
 
@@ -114,6 +119,7 @@ def extract_braced_body(definition_text: str) -> str:
 
 
 def split_root_fields(body: str) -> list[str]:
+    """Split a root operation body into individual field definitions."""
     fields: list[str] = []
     current: list[str] = []
     paren_depth = 0
@@ -142,6 +148,7 @@ def split_root_fields(body: str) -> list[str]:
 
 
 def get_field_name(field_text: str) -> str | None:
+    """Return the GraphQL field name from a field definition."""
     for line in field_text.splitlines():
         match = FIELD_START.match(line)
         if match is not None:
@@ -151,15 +158,18 @@ def get_field_name(field_text: str) -> str | None:
 
 
 def indent_field_text(field_text: str) -> str:
+    """Normalize a field definition to two-space indentation."""
     return "\n".join(f"  {line.lstrip()}" for line in field_text.splitlines())
 
 
 def make_chunk_id(source: str, kind: str, name: str, text: str) -> str:
+    """Create a stable short ID for a schema chunk."""
     digest = hashlib.sha1(f"{source}:{kind}:{name}:{text}".encode("utf-8")).hexdigest()
     return digest[:16]
 
 
 def dedupe_chunks(chunks: list[SchemaChunk]) -> list[SchemaChunk]:
+    """Remove duplicate chunks while preserving order."""
     unique_chunks = []
     seen_ids = set()
 
@@ -171,4 +181,3 @@ def dedupe_chunks(chunks: list[SchemaChunk]) -> list[SchemaChunk]:
         unique_chunks.append(chunk)
 
     return unique_chunks
-

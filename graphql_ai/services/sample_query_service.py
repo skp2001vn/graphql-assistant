@@ -42,6 +42,7 @@ VARIABLE_DEFINITION = re.compile(r"\$([_A-Za-z][_0-9A-Za-z]*)\s*:\s*([!\[\]_0-9A
 
 
 def build_default_sample_request(target: str) -> str:
+    """Build the default natural-language request for a sample GraphQL target."""
     normalized_target = target.strip().replace("-", " ")
     if not normalized_target:
         raise ValueError("Target must not be empty.")
@@ -58,6 +59,21 @@ def build_default_sample_request(target: str) -> str:
 
 
 class SampleQueryService:
+    """Business service for generating sample GraphQL queries.
+
+    This service coordinates the application workflow for the sample-query use case:
+    it receives a natural-language request, retrieves schema context through the
+    configured schema-context provider, sends a prompt to the configured LLM
+    client, and parses the model output into a GraphQL operation plus variables.
+
+    The current default schema-context provider is RAG-backed: `SchemaVectorStore`
+    chunks the local GraphQL SDL, embeds the chunks, stores them in Chroma, and
+    retrieves relevant schema context for each request. The service depends on
+    the `SchemaContextProvider` protocol, so that RAG can later be replaced or
+    composed with other approaches such as agent workflows or inference
+    optimization without changing the API layer.
+    """
+
     def __init__(
         self,
         settings: AppSettings | None = None,
@@ -66,6 +82,7 @@ class SampleQueryService:
         rebuild_index: bool = False,
         allow_downloads: bool = False,
     ) -> None:
+        """Create a sample-query service with injectable LLM and schema context dependencies."""
         self.settings = settings or get_settings()
         self.schema_context_provider = schema_context_provider or SchemaVectorStore(
             settings=self.settings,
@@ -76,6 +93,7 @@ class SampleQueryService:
         self._generation_lock = Lock()
 
     def generate(self, user_request: str) -> GeneratedGraphQLSample:
+        """Generate a sample GraphQL operation and variables for a user request."""
         with self._generation_lock:
             schema_context = self.schema_context_provider.retrieve_schema_context(user_request)
             raw_response = self.llm_client.generate(self._build_prompt(schema_context, user_request))
@@ -91,6 +109,7 @@ class SampleQueryService:
 
 
 def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:
+    """Parse fenced model output into a structured sample query result."""
     code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
     operation = code_blocks[0].strip() if code_blocks else raw_response.strip()
     variables: dict[str, Any] = {}

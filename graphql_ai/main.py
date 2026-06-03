@@ -11,11 +11,13 @@ from graphql_ai.services.sample_query_service import SampleQueryService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Initialize application-scoped services for the FastAPI lifecycle."""
     app.state.sample_service = SampleQueryService()
     yield
 
 
 def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
     app = FastAPI(
         title="GraphQL AI Examples API",
         version="0.1.0",

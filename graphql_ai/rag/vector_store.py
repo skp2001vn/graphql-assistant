@@ -14,17 +14,21 @@ CACHE_METADATA_FILE = "index_metadata.json"
 
 
 class SchemaVectorStore:
+    """Chroma-backed RAG store for GraphQL schema chunks."""
+
     def __init__(
         self,
         settings: AppSettings | None = None,
         rebuild: bool = False,
         allow_downloads: bool = False,
     ) -> None:
+        """Build or load the cached schema vector index."""
         self.settings = settings or get_settings()
         self.allow_downloads = allow_downloads
         self.collection = self._build_collection(rebuild=rebuild)
 
     def retrieve_schema_context(self, user_request: str) -> str:
+        """Retrieve schema chunks relevant to a natural-language request."""
         results = self.collection.query(
             query_embeddings=embed_texts(
                 [user_request],
@@ -126,4 +130,3 @@ class SchemaVectorStore:
         path = self._cache_metadata_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
-

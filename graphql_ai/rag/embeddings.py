@@ -8,6 +8,7 @@ _embedding_model: tuple[str, Any] | None = None
 
 
 def get_embedding_model(model_name_or_path: str, allow_downloads: bool = False) -> Any:
+    """Load and cache the sentence-transformers embedding model."""
     global _embedding_model
 
     if _embedding_model is None or _embedding_model[0] != model_name_or_path:
@@ -42,6 +43,7 @@ def embed_texts(
     model_name_or_path: str,
     allow_downloads: bool = False,
 ) -> list[list[float]]:
+    """Embed text values as normalized vectors for Chroma search."""
     embeddings = get_embedding_model(model_name_or_path, allow_downloads).encode(
         texts,
         normalize_embeddings=True,
@@ -51,4 +53,3 @@ def embed_texts(
 
 def _looks_like_local_path(value: str) -> bool:
     return value.startswith((".", "/", "~")) or "/" in value or "\\" in value
-
