@@ -1,6 +1,6 @@
 # GraphQL AI Examples
 
-This is a small educational app for generating sample GraphQL calls from a local schema.
+This is a small app for generating sample GraphQL calls from a local schema.
 
 The current implementation uses RAG. The structure is intentionally open for adding other GraphQL AI capabilities later, such as agents, planning workflows, inference optimization, model routing, and prompt evaluation.
 
@@ -123,7 +123,7 @@ You can also pass a custom request:
 curl "http://localhost:8080/sample/country?request=Generate%20a%20sample%20query%20for%20all%20countries"
 ```
 
-The API currently uses the RAG technique. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
+The API currently uses RAG. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
 
 ## Tests
 
@@ -135,6 +135,14 @@ python -m unittest discover -s tests
 ```
 
 The tests use fake LLM and schema-context providers, so they do not require Chroma, the embedding model, or a running Ollama server.
+
+## Guardrails
+
+The app applies guardrails after model generation:
+
+- GraphQL-core parses and validates generated operations against `resources/schema.graphql`.
+- Invalid output is rejected before the API returns it, including malformed GraphQL, invented fields, missing required arguments, scalar fields with nested selections, and variable type mismatches.
+- A separate variable-usage check rejects Variables JSON entries that are not referenced by the GraphQL operation.
 
 ## Inference Optimization
 
@@ -232,6 +240,7 @@ Design notes:
 - Future approaches such as agents or inference optimization can be added as normal packages when they are implemented.
 - The sample-query service depends on a schema-context protocol, so RAG can be swapped or composed with another approach.
 - Ollama access is isolated behind a client class and an LLM protocol.
+- GraphQL-core validation is used as an output guardrail before generated samples are returned.
 - Application settings are centralized in `graphql_ai/core/config.py`.
 - The Chroma collection is initialized once during FastAPI startup instead of being rebuilt per request.
 - Local generation is serialized with a lock because the embedding model and Ollama call are expensive shared resources.

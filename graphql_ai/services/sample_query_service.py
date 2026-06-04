@@ -67,6 +67,11 @@ class SampleQueryService:
     the `SchemaContextProvider` protocol, so that RAG can later be replaced or
     composed with other approaches such as agent workflows or inference
     optimization without changing the API layer.
+
+    This service also applies GraphQL validation as a guardrail: model output is
+    parsed and validated against the local SDL before the API returns it, which
+    prevents invented fields or malformed operations from silently reaching
+    callers.
     """
 
     def __init__(
@@ -92,7 +97,8 @@ class SampleQueryService:
 
         The prompt is compressed by default: retrieved schema chunks are compacted
         and the instruction template is intentionally short to reduce local model
-        input tokens.
+        input tokens. After generation, GraphQL-core validation acts as a
+        guardrail by rejecting operations that do not match the current schema.
         """
         with self._generation_lock:
             schema_context = self.schema_context_provider.retrieve_schema_context(user_request)
@@ -198,24 +204,29 @@ def _sample_value_for_graphql_type(variable_name: str, type_ref: str) -> Any:
 
 
 def validate_operation_against_schema(operation: str, schema_file: Any) -> list[str]:
-    """Validate generated operation field selections against the local schema."""
-    schema_fields = _parse_schema_field_types(schema_file.read_text(encoding="utf-8"))
-    tokens = _tokenize_operation(operation)
-    if not tokens:
-        return ["operation was empty"]
+    """Validate generated operations with GraphQL-core as an output guardrail.
+
+    This guardrail uses the standard GraphQL parser and validator instead of
+    custom string checks. It catches malformed GraphQL, invented fields, missing
+    required arguments, invalid scalar selections, and variable type mismatches
+    before a generated sample is returned.
+    """
+    try:
+        from graphql import build_schema, parse, validate
+    except ImportError as exc:
+        raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
 
     try:
-        selection_start = tokens.index("{")
-    except ValueError:
-        return ["operation did not contain a selection set"]
+        schema = build_schema(schema_file.read_text(encoding="utf-8"))
+        document = parse(operation)
+    except Exception as exc:
+        return [_format_graphql_error(exc)]
 
-    errors: list[str] = []
-    _validate_selection_set(tokens, selection_start, "Query", schema_fields, errors)
-    return errors
+    return [_format_graphql_error(error) for error in validate(schema, document)]
 
 
 def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[str]:
-    """Validate that returned variables are actually used by the GraphQL operation."""
+    """Guardrail that validates returned variables are used by the operation."""
     errors: list[str] = []
     for variable_name in variables:
         if variable_name.startswith("_"):
@@ -226,95 +237,5 @@ def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[s
     return errors
 
 
-def _parse_schema_field_types(schema_text: str) -> dict[str, dict[str, str]]:
-    schema_fields: dict[str, dict[str, str]] = {}
-    for type_match in re.finditer(r"\btype\s+([_A-Za-z][_0-9A-Za-z]*)\s*\{(.*?)\}", schema_text, re.DOTALL):
-        type_name = type_match.group(1)
-        body = type_match.group(2)
-        fields: dict[str, str] = {}
-
-        for raw_line in body.splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            field_match = re.match(
-                r"([_A-Za-z][_0-9A-Za-z]*)\s*(?:\([^)]*\))?\s*:\s*([!\[\]_0-9A-Za-z]+)",
-                line,
-            )
-            if field_match is not None:
-                fields[field_match.group(1)] = field_match.group(2)
-
-        schema_fields[type_name] = fields
-
-    return schema_fields
-
-
-def _tokenize_operation(operation: str) -> list[str]:
-    cleaned_operation = re.sub(r'"(?:\\.|[^"\\])*"', '""', operation)
-    cleaned_operation = re.sub(r"#.*", "", cleaned_operation)
-    return re.findall(r"[_A-Za-z][_0-9A-Za-z]*|\{|\}|\(|\)|:|,", cleaned_operation)
-
-
-def _validate_selection_set(
-    tokens: list[str],
-    start_index: int,
-    parent_type: str,
-    schema_fields: dict[str, dict[str, str]],
-    errors: list[str],
-) -> int:
-    index = start_index + 1
-    fields = schema_fields.get(parent_type, {})
-
-    while index < len(tokens):
-        token = tokens[index]
-        if token == "}":
-            return index + 1
-        if token in {"{", "}", "(", ")", ":", ","}:
-            index += 1
-            continue
-
-        field_name = token
-        index += 1
-        if index < len(tokens) - 1 and tokens[index] == ":":
-            field_name = tokens[index + 1]
-            index += 2
-
-        if index < len(tokens) and tokens[index] == "(":
-            index = _skip_balanced_tokens(tokens, index, "(", ")")
-
-        field_type = fields.get(field_name)
-        if field_type is None:
-            errors.append(f"type {parent_type} has no field {field_name}")
-            if index < len(tokens) and tokens[index] == "{":
-                index = _skip_balanced_tokens(tokens, index, "{", "}")
-            continue
-
-        nested_type = _unwrap_graphql_type(field_type)
-        if index < len(tokens) and tokens[index] == "{":
-            if nested_type not in schema_fields:
-                errors.append(f"scalar field {parent_type}.{field_name} must not have nested fields")
-                index = _skip_balanced_tokens(tokens, index, "{", "}")
-            else:
-                index = _validate_selection_set(tokens, index, nested_type, schema_fields, errors)
-
-    return index
-
-
-def _skip_balanced_tokens(tokens: list[str], start_index: int, open_token: str, close_token: str) -> int:
-    depth = 0
-    index = start_index
-    while index < len(tokens):
-        if tokens[index] == open_token:
-            depth += 1
-        elif tokens[index] == close_token:
-            depth -= 1
-            if depth == 0:
-                return index + 1
-        index += 1
-
-    return index
-
-
-def _unwrap_graphql_type(type_ref: str) -> str:
-    return re.sub(r"[\[\]!]", "", type_ref)
+def _format_graphql_error(error: Exception) -> str:
+    return str(error).split("\n\n", maxsplit=1)[0]

@@ -1,5 +1,6 @@
 chromadb
 fastapi
+graphql-core
 requests
 sentence-transformers
 uvicorn[standard]

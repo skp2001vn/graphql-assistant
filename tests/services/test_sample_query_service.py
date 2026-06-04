@@ -148,7 +148,42 @@ query ContinentQuery($code: ID!) {
 
         errors = validate_operation_against_schema(operation, self.schema_file)
 
-        self.assertEqual(["type Continent has no field countries"], errors)
+        self.assertEqual(1, len(errors))
+        self.assertIn("Cannot query field 'countries' on type 'Continent'", errors[0])
+
+    def test_validate_operation_rejects_graphql_syntax_errors(self) -> None:
+        errors = validate_operation_against_schema("query Broken { country(code: $code) { code ", self.schema_file)
+
+        self.assertEqual(1, len(errors))
+        self.assertIn("Syntax Error", errors[0])
+
+    def test_validate_operation_rejects_missing_required_arguments(self) -> None:
+        operation = """
+query CountryQuery {
+  country {
+    code
+  }
+}
+"""
+
+        errors = validate_operation_against_schema(operation, self.schema_file)
+
+        self.assertEqual(1, len(errors))
+        self.assertIn("Field 'country' argument 'code' of type 'ID!' is required", errors[0])
+
+    def test_validate_operation_rejects_variable_type_mismatches(self) -> None:
+        operation = """
+query CountryQuery($code: String!) {
+  country(code: $code) {
+    code
+  }
+}
+"""
+
+        errors = validate_operation_against_schema(operation, self.schema_file)
+
+        self.assertEqual(1, len(errors))
+        self.assertIn("Variable '$code' of type 'String!' used in position expecting type 'ID!'", errors[0])
 
     def test_validate_operation_accepts_nested_fields_that_exist(self) -> None:
         operation = """
@@ -231,7 +266,7 @@ query ContinentQuery($code: ID!) {
             schema_context_provider=FakeSchemaContextProvider(),
         )
 
-        with self.assertRaisesRegex(RuntimeError, "type Continent has no field countries"):
+        with self.assertRaisesRegex(RuntimeError, "Cannot query field 'countries' on type 'Continent'"):
             service.generate("Generate continent query")
 
     def test_pre_warm_sends_configured_prompt_when_enabled(self) -> None:

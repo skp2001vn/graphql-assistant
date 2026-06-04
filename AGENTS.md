@@ -1,6 +1,6 @@
 # Project Guidelines
 
-This repository is an educational GraphQL AI examples project. The current implementation uses RAG to generate sample GraphQL operations, but future enhancements may add agents, inference optimization, model routing, prompt evaluation, or other approaches.
+This repository is a GraphQL AI examples project. The current implementation uses RAG to generate sample GraphQL operations, but future enhancements may add agents, inference optimization, model routing, prompt evaluation, or other approaches.
 
 ## Architecture
 
@@ -52,7 +52,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Register routes through routers from `graphql_ai/api/routes.py`.
 - Use FastAPI lifespan for application-scoped service initialization.
 - Return typed Pydantic response models from route handlers.
-- Keep JSON responses pretty-formatted for this educational project.
+- Keep JSON responses pretty-formatted for this project.
 - Do not call Ollama, Chroma, or embedding code directly from route handlers.
 
 ## Documentation
@@ -60,6 +60,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Add docstrings for public classes and public methods.
 - Public service classes should describe the business workflow they coordinate.
 - When a service uses RAG, mention that RAG is the current schema-context approach, not the only possible approach.
+- When a service applies validation, safety checks, or output filtering, describe the guardrail behavior clearly.
 - Keep private helper docstrings optional; add them only when the behavior is not obvious.
 
 ## Testing
@@ -79,6 +80,14 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Preserve Chroma index caching; avoid rebuilding the index per request.
 - If schema indexing behavior changes, keep cache invalidation based on schema content and embedding model.
 - Do not hard-code schema-specific fields outside a default example request unless the user explicitly asks for a schema-specific demo.
+
+## Guardrails
+
+- Validate generated GraphQL operations with GraphQL-core before returning them.
+- Keep output guardrails in the service layer, not in API route handlers.
+- Guardrails should reject malformed operations, invented fields, missing required arguments, invalid nested selections, and variable type mismatches.
+- Keep variable-usage validation so Variables JSON cannot drift away from the generated operation.
+- When changing guardrail behavior, add focused tests in `tests/services/` or the closest matching mirrored folder.
 
 ## Inference Optimization
 
