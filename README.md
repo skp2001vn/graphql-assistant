@@ -1,8 +1,8 @@
 # GraphQL AI Examples
 
-This is a small app for generating sample GraphQL calls from a local schema.
+This is a small app for generating sample GraphQL calls and troubleshooting GraphQL calls from a local schema.
 
-Sample generation uses RAG with local Ollama inference. For `/sample/{root_field}`, the root field is converted to a focused prompt request, then retrieval provides schema context before prompt construction, inference, and guardrails. In this app, `root_field` is the GraphQL Query or Mutation field name the user wants to generate, such as `country`. The structure is intentionally open for adding other GraphQL AI capabilities later, such as agents, planning workflows, inference optimization, model routing, and prompt evaluation.
+Sample generation uses RAG with local Ollama inference. For `/sample/{root_field}`, the root field is converted to a focused prompt request, then retrieval provides schema context before prompt construction, inference, and guardrails. Troubleshooting uses a small tool-using agent. For `/troubleshoot/{root_field}`, the agent goal is to explain a submitted GraphQL call, run a plan with local tools, and suggest a corrected operation. In this app, `root_field` is the GraphQL Query or Mutation field name the user wants to generate or troubleshoot, such as `country`. The structure is intentionally open for adding other GraphQL AI capabilities later, such as planning workflows, inference optimization, model routing, and prompt evaluation.
 
 ## AI Concepts Covered
 
@@ -17,8 +17,11 @@ This project highlights common AI application patterns:
 - **Inference**: sends the final prompt to a local Ollama LLM.
 - **Inference cache**: reuses responses for identical prompts and model settings.
 - **Model pre-warm**: loads the local model during API startup to reduce first-request latency.
-- **Guardrails**: validates generated GraphQL before returning it.
-- **Agents and planning**: future extension points for multi-step GraphQL workflows.
+- **Guardrails**: validates input and generated GraphQL before returning it.
+- **Agent**: coordinates a goal, plan, tool calls, observations, and inference for troubleshooting.
+- **Plan**: ordered steps the agent follows to troubleshoot a GraphQL call.
+- **Tools**: deterministic helpers for input guardrails, GraphQL validation, and schema retrieval.
+- **Tool observations**: syntax errors, schema validation errors, and retrieved schema context passed into inference.
 - **Model routing and prompt evaluation**: future extension points for selecting and assessing model behavior.
 
 The RAG pipeline:
@@ -138,6 +141,67 @@ The response is JSON:
 
 `/sample/{root_field}` calls always use the root-field path. The path value is the Query or Mutation field name from the schema that the user wants to generate. For the bundled schema, valid examples include `country`, `countries`, `continent`, and `continents`. The service converts that root field into a focused prompt request, then uses RAG, Ollama inference, and guardrails to generate the sample.
 
+Call the troubleshooting endpoint with a plain-text GraphQL operation:
+
+```bash
+curl -X POST http://localhost:8080/troubleshoot/country \
+  -H "Content-Type: text/plain" \
+  --data 'query CountyQuery($code: ID!) {
+  country(code: $code) {
+    code1
+    name
+  }
+}'
+```
+
+Postman's **Body > GraphQL** mode sends JSON with a `query` field. The endpoint accepts that shape too:
+
+```json
+{
+  "query": "query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code1\n    name\n  }\n}",
+  "variables": {
+    "code": "US"
+  }
+}
+```
+
+The response is JSON:
+
+```json
+{
+  "root_field": "country",
+  "status": "invalid",
+  "issues": [
+    "Cannot query field 'code1' on type 'Country'. Did you mean 'code'? Location: line 3, column 5."
+  ],
+  "suggestion": "Use the schema field `code` instead of `code1`.",
+  "corrected_operation": [
+    "query CountryQuery($code: ID!) {",
+    "  country(code: $code) {",
+    "    code",
+    "    name",
+    "  }",
+    "}"
+  ],
+  "plan": [
+    "Validate input",
+    "Parse and validate GraphQL",
+    "Retrieve schema context",
+    "Generate troubleshooting guidance",
+    "Validate corrected operation"
+  ]
+}
+```
+
+`/troubleshoot/{root_field}` uses a small agent workflow:
+
+1. Goal: explain what is wrong with the submitted GraphQL operation and suggest a corrected operation.
+2. Plan: validate input, parse and validate GraphQL, retrieve schema context, generate guidance, and validate the correction.
+3. Tools: input guardrail, GraphQL-core validation, and RAG schema retrieval.
+4. Tool observations: syntax locations, schema validation errors, and retrieved schema context.
+5. Inference: Ollama receives the observations and proposes a suggestion plus corrected operation.
+6. Guardrail: the corrected operation is validated before it is returned. If it is still invalid, the API returns an empty `corrected_operation` and includes the validation issue.
+
 ## Tests
 
 Run the test suite:
@@ -151,11 +215,14 @@ The tests use fake LLM and schema-context providers, so they do not require Chro
 
 ## Guardrails
 
-The app applies guardrails after model generation:
+The app applies input and output guardrails:
 
+- Root-field input must match GraphQL field-name syntax before RAG retrieval or inference.
 - GraphQL-core parses and validates generated operations against `resources/schema.graphql`.
 - Invalid output is rejected before the API returns it, including malformed GraphQL, invented fields, missing required arguments, scalar fields with nested selections, and variable type mismatches.
 - A separate variable-usage check rejects Variables JSON entries that are not referenced by the GraphQL operation.
+- The troubleshooting agent captures syntax errors with line and column locations before asking the model for guidance.
+- The troubleshooting agent validates its corrected operation before returning it.
 
 These checks keep LLM output aligned with the schema and the API response contract.
 
@@ -226,6 +293,8 @@ The application is split into layers instead of keeping everything in one script
 
 ```text
 graphql_ai/
+  agents/
+    troubleshooting_agent.py # Tool-using agent for GraphQL troubleshooting
   api/
     routes.py          # FastAPI controllers/routes
     schemas.py         # Pydantic request/response models
@@ -248,6 +317,7 @@ graphql_ai/
   cli.py               # Command-line entry point
   main.py              # FastAPI app factory
 tests/                 # Unit and integration tests with fake AI dependencies
+  agents/
   api/
   core/
   domain/
@@ -261,8 +331,8 @@ Design notes:
 
 - API routes stay thin and delegate work to the service layer.
 - Pydantic schemas define the public HTTP response contract.
+- The troubleshooting agent owns its goal, plan, tools, tool observations, and final inference step.
 - RAG is represented by the `graphql_ai/rag` module, but it is only the current schema-context approach.
-- Future approaches such as agents or inference optimization can be added as normal packages when they are implemented.
 - The sample-query service depends on a schema-context protocol, so RAG can be swapped or composed with another approach.
 - Ollama access is isolated behind a client class and an LLM protocol.
 - GraphQL-core validation is used as an output guardrail before generated samples are returned.

@@ -23,3 +23,15 @@ class GeneratedGraphQLSample:
     variables: dict[str, Any]
     raw_response: str
 
+
+@dataclass(frozen=True)
+class TroubleshootingResult:
+    """Troubleshooting result produced by the GraphQL agent workflow."""
+
+    root_field: str
+    status: str
+    issues: list[str]
+    suggestion: str
+    corrected_operation: str
+    plan: list[str]
+    raw_response: str

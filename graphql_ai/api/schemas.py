@@ -12,6 +12,20 @@ class SampleQueryResponse(BaseModel):
     variables: dict[str, Any] = Field(default_factory=dict, description="Variables for the operation.")
 
 
+class TroubleshootingResponse(BaseModel):
+    """HTTP response for the GraphQL troubleshooting agent."""
+
+    root_field: str = Field(description="GraphQL Query or Mutation field name being troubleshot.")
+    status: str = Field(description="Validation status for the submitted GraphQL operation.")
+    issues: list[str] = Field(default_factory=list, description="Syntax or schema issues found by tools.")
+    suggestion: str = Field(description="Agent-generated troubleshooting guidance.")
+    corrected_operation: list[str] = Field(
+        default_factory=list,
+        description="Agent-suggested corrected GraphQL operation formatted as lines.",
+    )
+    plan: list[str] = Field(description="Agent plan executed with local tools and inference.")
+
+
 class HealthResponse(BaseModel):
     """HTTP response for the health endpoint."""
 

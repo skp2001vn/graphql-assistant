@@ -1,6 +1,6 @@
 # Project Guidelines
 
-This repository is a GraphQL AI examples project. The current implementation uses RAG to generate sample GraphQL operations, but future enhancements may add agents, inference optimization, model routing, prompt evaluation, or other approaches.
+This repository is a GraphQL AI examples project. The current implementation uses RAG to generate sample GraphQL operations and a tool-using agent to troubleshoot GraphQL calls. Future enhancements may add inference optimization, model routing, prompt evaluation, or other approaches.
 
 ## AI Concepts
 
@@ -16,7 +16,11 @@ Use consistent AI vocabulary in code comments, docstrings, and docs:
 - Inference cache: prompt/response reuse keyed by prompt and model settings.
 - Model pre-warm: loading the local model during API startup.
 - Guardrails: validation and output checks before returning model output.
-- Agents, planning, model routing, and prompt evaluation: future extension areas.
+- Agent: workflow with a goal, plan, tools, tool observations, and inference.
+- Plan: ordered steps an agent follows to complete a goal.
+- Tools: deterministic functions an agent calls, such as validation or retrieval.
+- Tool observations: tool outputs passed into prompt construction and inference.
+- Model routing and prompt evaluation: future extension areas.
 
 ## Architecture
 
@@ -24,6 +28,7 @@ Keep code organized by responsibility:
 
 ```text
 graphql_ai/
+  agents/   Tool-using agent workflows
   api/       FastAPI routes and HTTP schemas
   core/      settings, protocols, shared framework utilities
   domain/    domain dataclasses and business objects
@@ -33,6 +38,7 @@ graphql_ai/
   cli.py     command-line entry point
   main.py    FastAPI app factory
 tests/
+  agents/   tests for agent workflows, plans, tools, and observations
   api/       tests for API routes and HTTP behavior
   core/      tests for settings, protocols, and shared framework utilities
   domain/    tests for domain dataclasses and business objects
@@ -48,8 +54,9 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - API routes must stay thin: validate/translate HTTP input, call a service, and return a Pydantic response.
 - Services own business logic and orchestration. They may depend on protocols from `core/`, clients from `llm/`, and implementation modules such as `rag/`.
 - Domain models must not depend on FastAPI, Chroma, Ollama, or framework code.
+- Agent workflows should stay in `graphql_ai/agents` and keep the goal, plan, tools, tool observations, and inference path explicit.
 - RAG code must stay in `graphql_ai/rag`. Do not make RAG the identity of the whole application.
-- Future approaches such as agents or inference optimization should be added as normal packages when implemented, not pre-created speculatively.
+- Future approaches such as inference optimization should be added as normal packages when implemented, not pre-created speculatively.
 - LLM providers should implement the `LLMClient` protocol instead of being called directly from routes.
 - Schema context providers should implement `SchemaContextProvider` so services can swap RAG for another approach later.
 
@@ -78,6 +85,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - When a service uses RAG, mention that RAG is the current schema-context approach, not the only possible approach.
 - When a service applies validation, safety checks, or output filtering, describe the guardrail behavior clearly.
 - When a service calls an LLM, describe the inference path and any inference cache behavior.
+- When an agent uses planning or tools, mention the goal, plan, tools, tool observations, and inference path.
 - When a module uses embeddings, retrieval, vector stores, or prompt compression, use those terms directly.
 - Keep private helper docstrings optional; add them only when the behavior is not obvious.
 
@@ -96,6 +104,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 
 - `resources/schema.graphql` is the default schema and is expected to change rarely.
 - Direct sample generation should convert the root field into a focused prompt request, then use RAG, inference, and guardrails. In this project, root field means the schema Query or Mutation field name the user wants to generate, such as `country`.
+- GraphQL troubleshooting should use the troubleshooting agent plan, deterministic tools, RAG schema retrieval, inference, and corrected-operation guardrails.
 - RAG code should keep the flow clear: schema chunking, embeddings, vector-store indexing, retrieval, and schema-context formatting.
 - Preserve Chroma index caching; avoid rebuilding the index per request.
 - If schema indexing behavior changes, keep cache invalidation based on schema content and embedding model.
@@ -131,7 +140,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 Before finishing code changes, run the closest practical checks:
 
 ```bash
-python3 -m py_compile graphql_ai/*.py graphql_ai/api/*.py graphql_ai/core/*.py graphql_ai/domain/*.py graphql_ai/llm/*.py graphql_ai/rag/*.py graphql_ai/services/*.py
+python3 -m py_compile graphql_ai/*.py graphql_ai/agents/*.py graphql_ai/api/*.py graphql_ai/core/*.py graphql_ai/domain/*.py graphql_ai/llm/*.py graphql_ai/rag/*.py graphql_ai/services/*.py
 .venv/bin/python -m unittest discover -s tests
 .venv/bin/python -m graphql_ai.cli --help
 ```
