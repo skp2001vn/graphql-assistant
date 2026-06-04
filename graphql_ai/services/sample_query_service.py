@@ -89,6 +89,19 @@ class SampleQueryService:
 
         return parse_generated_sample(raw_response)
 
+    def pre_warm(self) -> None:
+        """Pre-load the local Ollama model during application startup.
+
+        This is an inference optimization for the API path. It sends a tiny
+        prompt through the configured LLM client so Ollama loads the model before
+        the first user request. The setting trades a slightly slower startup for
+        lower first-request latency.
+        """
+        if not self.settings.ollama_pre_warm_enabled:
+            return
+
+        self.llm_client.generate(self.settings.ollama_pre_warm_prompt)
+
     def _build_prompt(self, schema_context: str, user_request: str) -> str:
         user_prompt = GRAPHQL_USER_PROMPT_TEMPLATE.format(
             schema_context=schema_context,

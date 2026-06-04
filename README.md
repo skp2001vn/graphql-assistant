@@ -141,6 +141,7 @@ Ollama runtime options are also tuned for local responsiveness:
 - `OLLAMA_NUM_CTX` optionally controls the context window size.
 - `OLLAMA_NUM_PREDICT=600` keeps the maximum output smaller for this simple schema.
 - `PROMPT_COMPRESSION_ENABLED=true` keeps schema context and instructions compact before calling Ollama.
+- `OLLAMA_PRE_WARM_ENABLED=true` sends a tiny startup request so the model is loaded before the first API call.
 
 Defaults:
 
@@ -148,6 +149,8 @@ Defaults:
 OLLAMA_KEEP_ALIVE=10m
 OLLAMA_NUM_CTX=
 OLLAMA_NUM_PREDICT=600
+OLLAMA_PRE_WARM_ENABLED=true
+OLLAMA_PRE_WARM_PROMPT=OK
 PROMPT_COMPRESSION_ENABLED=true
 SCHEMA_CONTEXT_CACHE_ENABLED=true
 SCHEMA_CONTEXT_CACHE_PATH=.cache/schema_context
@@ -159,6 +162,12 @@ To disable response caching:
 
 ```bash
 INFERENCE_CACHE_ENABLED=false uvicorn graphql_ai.main:app --host 0.0.0.0 --port 8080
+```
+
+To disable startup model pre-warming:
+
+```bash
+OLLAMA_PRE_WARM_ENABLED=false uvicorn graphql_ai.main:app --host 0.0.0.0 --port 8080
 ```
 
 To clear cached responses:
@@ -221,6 +230,8 @@ OLLAMA_TIMEOUT_SECONDS=300
 OLLAMA_KEEP_ALIVE=10m
 OLLAMA_NUM_CTX=
 OLLAMA_NUM_PREDICT=600
+OLLAMA_PRE_WARM_ENABLED=true
+OLLAMA_PRE_WARM_PROMPT=OK
 OLLAMA_THINK=false
 PROMPT_COMPRESSION_ENABLED=true
 SCHEMA_CONTEXT_CACHE_ENABLED=true

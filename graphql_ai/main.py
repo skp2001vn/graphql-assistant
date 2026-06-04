@@ -11,8 +11,10 @@ from graphql_ai.services.sample_query_service import SampleQueryService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize application-scoped services for the FastAPI lifecycle."""
-    app.state.sample_service = SampleQueryService()
+    """Initialize services and pre-warm local inference for the API lifecycle."""
+    sample_service = SampleQueryService()
+    sample_service.pre_warm()
+    app.state.sample_service = sample_service
     yield
 
 

@@ -46,6 +46,8 @@ class AppSettings:
     prompt_compression_enabled: bool = field(
         default_factory=lambda: _read_bool_env("PROMPT_COMPRESSION_ENABLED", True)
     )
+    ollama_pre_warm_enabled: bool = field(default_factory=lambda: _read_bool_env("OLLAMA_PRE_WARM_ENABLED", True))
+    ollama_pre_warm_prompt: str = field(default_factory=lambda: os.getenv("OLLAMA_PRE_WARM_PROMPT", "OK"))
 
     def inference_cache_namespace(self) -> str:
         """Return cache namespace fields that affect model output.
@@ -61,6 +63,7 @@ class AppSettings:
                 self.ollama_keep_alive,
                 str(self.ollama_think),
                 str(self.prompt_compression_enabled),
+                str(self.ollama_pre_warm_enabled),
             ]
         )
 

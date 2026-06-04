@@ -70,6 +70,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Prompt cache keys must include the full prompt plus model settings that affect output.
 - Schema-context cache keys must include the user request and schema fingerprint.
 - Keep prompt compression enabled by default for local inference; include compression settings in cache keys.
+- Keep startup model pre-warming in the service/lifespan path, never in route handlers.
 - Store runtime cache artifacts under ignored paths such as `.cache/`.
 - Prefer small composable wrappers, such as cached LLM clients, over special cases inside business methods.
 
