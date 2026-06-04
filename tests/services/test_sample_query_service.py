@@ -241,6 +241,7 @@ query ContinentQuery($code: ID!) {
         self.assertEqual({"code": "AF"}, sample.variables)
         self.assertIn("Schema:", llm_client.prompts[0])
         self.assertIn("Root field:\ncontinent", llm_client.prompts[0])
+        self.assertIn("Response type:\nContinent", llm_client.prompts[0])
         self.assertIn("Operation name:\nContinentQuery", llm_client.prompts[0])
         self.assertEqual("GraphQL Query or Mutation root field continent", schema_context_provider.requests[0])
 
@@ -285,6 +286,7 @@ query CountriesQuery {
         self.assertEqual({}, sample.variables)
         self.assertEqual(1, len(llm_client.prompts))
         self.assertIn("Root field:\ncountries", llm_client.prompts[0])
+        self.assertIn("Response type:\nCountry", llm_client.prompts[0])
         self.assertIn("Operation name:\nCountriesQuery", llm_client.prompts[0])
         self.assertEqual("GraphQL Query or Mutation root field countries", schema_context_provider.requests[0])
 

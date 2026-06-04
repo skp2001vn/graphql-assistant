@@ -16,12 +16,13 @@ from graphql_ai.rag.vector_store import SchemaVectorStore
 
 GRAPHQL_SYSTEM_PROMPT = (
     "You are a GraphQL expert. Generate one valid GraphQL operation from the provided schema. "
-    "Use only schema fields. Use the requested root field exactly. Use variables for required "
+    "Use only schema fields. The first field inside the operation body must be exactly the "
+    "requested root field, including singular or plural spelling. Use variables for required "
     "arguments and put sample values only in the variables JSON. If the root field has no "
     "arguments, do not add arguments and return empty variables JSON. Include all fields defined "
     "on the selected response type. Expand nested object and list fields only when those fields "
     "exist on that type. Never add fields from another response type or inferred reverse "
-    "relationships. "
+    "relationships. Do not select Query or Mutation root fields inside response objects. "
     "Return exactly two fenced code blocks: GraphQL operation, then variables JSON."
 )
 
@@ -30,6 +31,9 @@ GRAPHQL_PROMPT_TEMPLATE = """Schema:
 
 Root field:
 {root_field}
+
+Response type:
+{response_type}
 
 Operation name:
 {operation_name}
@@ -100,6 +104,7 @@ class SampleQueryService:
             raise ValueError("Root field must not be empty.")
 
         operation_name = f"{_pascal_case(normalized_root_field)}Query"
+        response_type = _response_type_name(normalized_root_field)
         retrieval_request = f"GraphQL Query or Mutation root field {normalized_root_field}"
 
         with self._generation_lock:
@@ -109,6 +114,7 @@ class SampleQueryService:
                 self._build_prompt(
                     schema_context=schema_context,
                     root_field=normalized_root_field,
+                    response_type=response_type,
                     operation_name=operation_name,
                 )
             )
@@ -142,10 +148,17 @@ class SampleQueryService:
         self.llm_client.generate(self.settings.ollama_pre_warm_prompt)
         self._pre_warmed = True
 
-    def _build_prompt(self, schema_context: str, root_field: str, operation_name: str) -> str:
+    def _build_prompt(
+        self,
+        schema_context: str,
+        root_field: str,
+        response_type: str,
+        operation_name: str,
+    ) -> str:
         user_prompt = GRAPHQL_PROMPT_TEMPLATE.format(
             schema_context=schema_context,
             root_field=root_field,
+            response_type=response_type,
             operation_name=operation_name,
         )
         return f"{GRAPHQL_SYSTEM_PROMPT}\n\n{user_prompt}"
@@ -254,6 +267,15 @@ def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[s
 
 def _pascal_case(value: str) -> str:
     return "".join(part.capitalize() for part in re.split(r"[_\-\s]+", value) if part)
+
+
+def _response_type_name(root_field: str) -> str:
+    if root_field.endswith("ies"):
+        root_field = f"{root_field[:-3]}y"
+    elif root_field.endswith("s"):
+        root_field = root_field[:-1]
+
+    return _pascal_case(root_field)
 
 
 def _format_graphql_error(error: Exception) -> str:

@@ -6,11 +6,8 @@ from pathlib import Path
 
 from graphql_ai.rag.schema_chunks import (
     chunk_graphql_schema,
-    extract_braced_body,
-    get_field_name,
     load_schema_chunks,
     read_schema_file,
-    split_root_fields,
 )
 
 
@@ -50,14 +47,13 @@ class SchemaChunksTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 read_schema_file(schema_file)
 
-    def test_chunk_graphql_schema_splits_root_fields_and_types(self) -> None:
+    def test_chunk_graphql_schema_splits_top_level_definitions(self) -> None:
         chunks = chunk_graphql_schema(SCHEMA, "schema.graphql")
 
         chunk_keys = {(chunk.kind, chunk.name) for chunk in chunks}
         self.assertEqual(
             {
-                ("query", "countries"),
-                ("query", "country"),
+                ("type", "Query"),
                 ("type", "Country"),
             },
             chunk_keys,
@@ -78,25 +74,6 @@ class SchemaChunksTest(unittest.TestCase):
             chunks = load_schema_chunks(schema_file)
 
         self.assertGreater(len(chunks), 0)
-
-    def test_split_root_fields_handles_arguments(self) -> None:
-        body = """
-  countries: [Country!]!
-  country(
-    code: ID!
-  ): Country
-"""
-
-        fields = split_root_fields(body)
-
-        self.assertEqual(2, len(fields))
-        self.assertEqual("countries", get_field_name(fields[0]))
-        self.assertEqual("country", get_field_name(fields[1]))
-
-    def test_extract_braced_body_returns_inner_text(self) -> None:
-        body = extract_braced_body("type Query {\n  country: Country\n}")
-
-        self.assertEqual("\n  country: Country\n", body)
 
 
 if __name__ == "__main__":

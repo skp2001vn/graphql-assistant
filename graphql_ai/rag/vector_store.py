@@ -7,7 +7,7 @@ from typing import Any
 
 from graphql_ai.core.config import AppSettings, get_settings
 from graphql_ai.rag.embeddings import embed_texts
-from graphql_ai.rag.schema_chunks import load_schema_chunks
+from graphql_ai.rag.schema_chunks import SCHEMA_CHUNK_VERSION, load_schema_chunks
 
 
 CACHE_METADATA_FILE = "index_metadata.json"
@@ -135,6 +135,7 @@ class SchemaVectorStore:
         return {
             "schema_file": str(self.settings.schema_file),
             "schema_sha1": hashlib.sha1(schema_text.encode("utf-8")).hexdigest(),
+            "schema_chunk_version": SCHEMA_CHUNK_VERSION,
             "embedding_model": self.settings.embedding_model,
             "collection_name": self.settings.chroma_collection,
         }
