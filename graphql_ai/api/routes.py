@@ -3,7 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Path, Request
 
 from graphql_ai.api.schemas import HealthResponse, SampleQueryResponse
-from graphql_ai.services.sample_query_service import SampleQueryService
+from graphql_ai.services.sample_query_service import (
+    InvalidRootFieldNameError,
+    SampleQueryService,
+)
 
 
 router = APIRouter()
@@ -35,8 +38,8 @@ def generate_sample_query(
     try:
         sample_service = get_sample_query_service(request)
         sample = sample_service.generate(root_field)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InvalidRootFieldNameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

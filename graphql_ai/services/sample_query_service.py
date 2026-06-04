@@ -40,6 +40,11 @@ Operation name:
 """
 
 VARIABLE_DEFINITION = re.compile(r"\$([_A-Za-z][_0-9A-Za-z]*)\s*:\s*([!\[\]_0-9A-Za-z]+)")
+GRAPHQL_NAME = re.compile(r"^[_A-Za-z][_0-9A-Za-z]*$")
+
+
+class InvalidRootFieldNameError(ValueError):
+    """Raised when an API root field is not a valid GraphQL field name."""
 
 
 class SampleQueryService:
@@ -62,10 +67,11 @@ class SampleQueryService:
     planning, model routing, prompt evaluation, or inference optimization without
     changing the API layer.
 
-    This service also applies GraphQL validation as a guardrail: model output is
-    parsed and validated against the local SDL before the API returns it, which
-    prevents invented fields or malformed operations from silently reaching
-    callers.
+    This service applies input and output guardrails. Input validation rejects
+    malformed root-field names before RAG retrieval or inference. Output
+    validation parses and validates generated operations against the local SDL
+    before the API returns them, which prevents invented fields or malformed
+    operations from silently reaching callers.
     """
 
     def __init__(
@@ -94,14 +100,14 @@ class SampleQueryService:
         requested by the API, for example `country`. It is converted into a
         short retrieval request, then the full application flow runs: RAG
         retrieval, prompt construction, inference, parsing, and guardrail
-        validation. The prompt is compressed by default: retrieved schema chunks
-        are compacted and the instruction template is intentionally short to
-        reduce local model input tokens. After generation, GraphQL-core
-        validation rejects operations that do not match the current schema.
+        validation. The input guardrail confirms the root field is a valid
+        GraphQL field name before any retrieval or inference work starts. The
+        prompt is compressed by default: retrieved schema chunks are compacted
+        and the instruction template is intentionally short to reduce local
+        model input tokens. After generation, GraphQL-core validation rejects
+        operations that do not match the current schema.
         """
-        normalized_root_field = root_field.strip()
-        if not normalized_root_field:
-            raise ValueError("Root field must not be empty.")
+        normalized_root_field = validate_root_field_request(root_field)
 
         operation_name = f"{_pascal_case(normalized_root_field)}Query"
         response_type = _response_type_name(normalized_root_field)
@@ -263,6 +269,24 @@ def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[s
             errors.append(f"variables JSON includes {variable_name}, but operation does not use ${variable_name}")
 
     return errors
+
+
+def validate_root_field_request(root_field: str) -> str:
+    """Validate an API root-field request before RAG retrieval and inference.
+
+    This input guardrail accepts only GraphQL field-name syntax. Rejecting
+    malformed requests here avoids unnecessary embedding retrieval, prompt
+    construction, and Ollama inference.
+    """
+    normalized_root_field = root_field.strip()
+    if not normalized_root_field:
+        raise InvalidRootFieldNameError("Root field must not be empty.")
+    if GRAPHQL_NAME.fullmatch(normalized_root_field) is None:
+        raise InvalidRootFieldNameError(
+            "Root field must be a GraphQL field name, for example: country."
+        )
+
+    return normalized_root_field
 
 
 def _pascal_case(value: str) -> str:

@@ -10,18 +10,19 @@ from graphql_ai.api.routes import router
 from graphql_ai.core.responses import PrettyJSONResponse
 from graphql_ai.domain import GeneratedGraphQLSample
 from graphql_ai.main import create_app
+from graphql_ai.services.sample_query_service import InvalidRootFieldNameError
 
 
 class FakeSampleService:
-    def __init__(self, fail: bool = False) -> None:
-        self.fail = fail
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
         self.root_fields: list[str] = []
         self.pre_warm_called = False
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
         self.root_fields.append(root_field)
-        if self.fail:
-            raise RuntimeError("generation failed")
+        if self.error is not None:
+            raise self.error
 
         return GeneratedGraphQLSample(
             operation="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
@@ -71,8 +72,16 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(["country"], service.root_fields)
 
+    def test_sample_endpoint_returns_400_when_root_field_name_is_invalid(self) -> None:
+        client = build_test_client(FakeSampleService(InvalidRootFieldNameError("invalid root field")))
+
+        response = client.get("/sample/invalid")
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual({"detail": "invalid root field"}, response.json())
+
     def test_sample_endpoint_returns_503_when_generation_fails(self) -> None:
-        client = build_test_client(FakeSampleService(fail=True))
+        client = build_test_client(FakeSampleService(RuntimeError("generation failed")))
 
         response = client.get("/sample/country")
 
