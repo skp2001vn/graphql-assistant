@@ -16,6 +16,13 @@ graphql_ai/
   services/  business use cases and orchestration
   cli.py     command-line entry point
   main.py    FastAPI app factory
+tests/
+  api/       tests for API routes and HTTP behavior
+  core/      tests for settings, protocols, and shared framework utilities
+  domain/    tests for domain dataclasses and business objects
+  llm/       tests for LLM clients and caching
+  rag/       tests for schema chunking, indexing, and retrieval helpers
+  services/  tests for business use cases and orchestration
 ```
 
 Do not add a generic `utils` module or broad helper class unless the code is genuinely reused across multiple packages. Keep single-use helpers close to the service or module that owns the behavior.
@@ -55,6 +62,17 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - When a service uses RAG, mention that RAG is the current schema-context approach, not the only possible approach.
 - Keep private helper docstrings optional; add them only when the behavior is not obvious.
 
+## Testing
+
+- Keep tests outside production code under `tests/`.
+- Mirror the production package layout under `tests/`. For example, test `graphql_ai/services/sample_query_service.py` in `tests/services/test_sample_query_service.py`.
+- Keep top-level tests only for top-level modules such as `graphql_ai/cli.py`.
+- Prefer deterministic tests with fake LLM clients, fake schema-context providers, fake Chroma collections, and temporary files.
+- Do not require live Ollama, Chroma, downloaded embedding models, or network access for the default test suite.
+- Integration tests should cover application boundaries, such as FastAPI routes plus service wiring, while still replacing slow external AI dependencies with fakes.
+- Live integration tests against real local infrastructure are optional and must be guarded behind an explicit environment variable such as `RUN_LIVE_INTEGRATION_TESTS=true`.
+- When adding behavior, add or update the closest unit or integration test in the matching mirrored folder.
+
 ## RAG And Schema Handling
 
 - `resources/schema.graphql` is the default schema and is expected to change rarely.
@@ -80,6 +98,7 @@ Before finishing code changes, run the closest practical checks:
 
 ```bash
 python3 -m py_compile graphql_ai/*.py graphql_ai/api/*.py graphql_ai/core/*.py graphql_ai/domain/*.py graphql_ai/llm/*.py graphql_ai/rag/*.py graphql_ai/services/*.py
+.venv/bin/python -m unittest discover -s tests
 .venv/bin/python -m graphql_ai.cli --help
 ```
 

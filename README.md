@@ -125,6 +125,17 @@ curl "http://localhost:8080/sample/country?request=Generate%20a%20sample%20query
 
 The API currently uses the RAG technique. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
 
+## Tests
+
+Run the test suite:
+
+```bash
+source .venv/bin/activate
+python -m unittest discover -s tests
+```
+
+The tests use fake LLM and schema-context providers, so they do not require Chroma, the embedding model, or a running Ollama server.
+
 ## Inference Optimization
 
 The app includes two local caches:
@@ -203,6 +214,14 @@ graphql_ai/
     sample_query_service.py # Business service for sample-query generation
   cli.py               # Command-line entry point
   main.py              # FastAPI app factory
+tests/                 # Unit and integration tests with fake AI dependencies
+  api/
+  core/
+  domain/
+  llm/
+  rag/
+  services/
+  test_cli.py
 ```
 
 Design notes:
