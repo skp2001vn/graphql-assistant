@@ -31,7 +31,6 @@ class TroubleshootingResult:
     root_field: str
     status: str
     issues: list[str]
+    detail: str
     suggestion: str
-    corrected_operation: str
-    plan: list[str]
     raw_response: str

@@ -93,8 +93,8 @@ query CountryQuery($code: ID!) {
         self.assertIn("Syntax Error", observation.issues[0])
         self.assertIn("Location: line", observation.issues[0])
 
-    def test_parse_troubleshooting_response_reads_suggestion_and_corrected_operation(self) -> None:
-        suggestion, corrected_operation = parse_troubleshooting_response(
+    def test_parse_troubleshooting_response_reads_detail_and_suggested_operation(self) -> None:
+        detail, suggestion = parse_troubleshooting_response(
             """
 ```text
 Use the schema field `country` instead of `county`.
@@ -111,10 +111,10 @@ query CountryQuery($code: ID!) {
 """
         )
 
-        self.assertIn("country", suggestion)
-        self.assertIn("country(code: $code)", corrected_operation)
+        self.assertIn("country", detail)
+        self.assertIn("country(code: $code)", suggestion)
 
-    def test_agent_runs_plan_tools_and_validates_corrected_operation(self) -> None:
+    def test_agent_runs_plan_tools_and_validates_suggested_operation(self) -> None:
         llm_response = """
 ```text
 Use the schema field `country` instead of `county`.
@@ -151,8 +151,8 @@ query CountyQuery($code: ID!) {
         self.assertEqual("county", result.root_field)
         self.assertEqual("invalid", result.status)
         self.assertIn("Cannot query field 'county'", result.issues[0])
-        self.assertIn("Use the schema field", result.suggestion)
-        self.assertIn("country(code: $code)", result.corrected_operation)
+        self.assertIn("Use the schema field", result.detail)
+        self.assertIn("country(code: $code)", result.suggestion)
         self.assertEqual(
             ["Troubleshoot GraphQL Query or Mutation root field county"],
             schema_context_provider.requests,
@@ -175,7 +175,36 @@ query CountyQuery($code: ID!) {
         self.assertEqual([], llm_client.prompts)
         self.assertEqual([], schema_context_provider.requests)
 
-    def test_agent_drops_invalid_corrected_operation(self) -> None:
+    def test_agent_returns_empty_fields_for_valid_graphql_call(self) -> None:
+        llm_client = FakeLLMClient("unused")
+        schema_context_provider = FakeSchemaContextProvider()
+        agent = TroubleshootingAgent(
+            settings=self.settings,
+            llm_client=llm_client,
+            schema_context_provider=schema_context_provider,
+        )
+
+        result = agent.troubleshoot(
+            "country",
+            """
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+""",
+        )
+
+        self.assertEqual("valid", result.status)
+        self.assertEqual([], result.issues)
+        self.assertEqual("", result.detail)
+        self.assertEqual("", result.suggestion)
+        self.assertEqual("", result.raw_response)
+        self.assertEqual([], llm_client.prompts)
+        self.assertEqual([], schema_context_provider.requests)
+
+    def test_agent_drops_invalid_suggested_operation(self) -> None:
         llm_response = """
 ```text
 Use the correct schema field.
@@ -200,8 +229,33 @@ query CountryQuery {
             "query CountyQuery { county { code } }",
         )
 
-        self.assertEqual("", result.corrected_operation)
+        self.assertEqual("", result.suggestion)
         self.assertTrue(any("Corrected operation was still invalid" in issue for issue in result.issues))
+
+    def test_agent_uses_validation_issue_as_detail_when_model_returns_only_operation(self) -> None:
+        llm_response = """
+```graphql
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+```
+"""
+        agent = TroubleshootingAgent(
+            settings=self.settings,
+            llm_client=FakeLLMClient(llm_response),
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        result = agent.troubleshoot(
+            "county",
+            "query CountyQuery($code: ID!) { county(code: $code) { code } }",
+        )
+
+        self.assertIn("Cannot query field 'county'", result.detail)
+        self.assertIn("country(code: $code)", result.suggestion)
 
 
 if __name__ == "__main__":

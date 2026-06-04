@@ -86,9 +86,8 @@ async def troubleshoot_graphql_call(
         root_field=result.root_field,
         status=result.status,
         issues=result.issues,
-        suggestion=result.suggestion,
-        corrected_operation=result.corrected_operation.splitlines() if result.corrected_operation else [],
-        plan=result.plan,
+        detail=result.detail,
+        suggestion=result.suggestion.splitlines() if result.suggestion else [],
     )
 
 

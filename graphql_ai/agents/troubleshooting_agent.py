@@ -28,7 +28,7 @@ TROUBLESHOOTING_SYSTEM_PROMPT = (
     "with a user's GraphQL operation and suggest a corrected operation. Use the tool "
     "observations and schema context. Tool observations are authoritative: do not add "
     "issues that are not listed in the validation issues. Do not invent schema fields. "
-    "Return exactly two fenced code blocks: a text suggestion, then a GraphQL corrected operation."
+    "Return exactly two fenced code blocks: detail text, then a GraphQL suggested operation."
 )
 
 TROUBLESHOOTING_PROMPT_TEMPLATE = """Plan:
@@ -135,9 +135,19 @@ class TroubleshootingAgent:
         self._inference_lock = Lock()
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
-        """Run the agent plan and return issues, suggestion, and corrected operation."""
+        """Run the agent plan and return issues, detail, and suggested operation."""
         normalized_root_field, normalized_graphql_call = self.input_tool.validate(root_field, graphql_call)
         validation_observation = self.validation_tool.validate(normalized_graphql_call)
+        if not validation_observation.issues:
+            return TroubleshootingResult(
+                root_field=normalized_root_field,
+                status="valid",
+                issues=[],
+                detail="",
+                suggestion="",
+                raw_response="",
+            )
+
         schema_context = self.retrieval_tool.retrieve(normalized_root_field)
 
         with self._inference_lock:
@@ -150,12 +160,16 @@ class TroubleshootingAgent:
                 )
             )
 
-        suggestion, corrected_operation = parse_troubleshooting_response(raw_response)
+        detail, suggested_operation = parse_troubleshooting_response(raw_response)
+        if not suggested_operation and looks_like_graphql_operation(detail):
+            suggested_operation = detail
+            detail = default_detail_from_issues(validation_observation.issues)
+
         corrected_issues = []
-        if corrected_operation:
-            corrected_issues = self.validation_tool.validate(corrected_operation).issues
+        if suggested_operation:
+            corrected_issues = self.validation_tool.validate(suggested_operation).issues
             if corrected_issues:
-                corrected_operation = ""
+                suggested_operation = ""
 
         issues = validation_observation.issues
         if corrected_issues:
@@ -165,9 +179,8 @@ class TroubleshootingAgent:
             root_field=normalized_root_field,
             status="valid" if not issues else "invalid",
             issues=issues,
-            suggestion=suggestion,
-            corrected_operation=corrected_operation,
-            plan=TROUBLESHOOTING_PLAN,
+            detail=detail,
+            suggestion=suggested_operation,
             raw_response=raw_response,
         )
 
@@ -200,14 +213,28 @@ class TroubleshootingAgent:
 
 
 def parse_troubleshooting_response(raw_response: str) -> tuple[str, str]:
-    """Parse agent inference into a suggestion and corrected operation."""
+    """Parse agent inference into detail text and a suggested operation."""
     code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
     if not code_blocks:
         return raw_response.strip(), ""
 
-    suggestion = code_blocks[0].strip()
-    corrected_operation = code_blocks[1].strip() if len(code_blocks) > 1 else ""
-    return suggestion, corrected_operation
+    detail = code_blocks[0].strip()
+    suggested_operation = code_blocks[1].strip() if len(code_blocks) > 1 else ""
+    return detail, suggested_operation
+
+
+def looks_like_graphql_operation(value: str) -> bool:
+    """Return whether text appears to be a GraphQL operation."""
+    stripped_value = value.lstrip()
+    return stripped_value.startswith(("query ", "mutation ", "subscription ", "{"))
+
+
+def default_detail_from_issues(issues: list[str]) -> str:
+    """Create deterministic detail text when inference only returns an operation."""
+    if issues:
+        return issues[0]
+
+    return "No validation issues were found."
 
 
 def format_graphql_issue(error: Exception) -> str:

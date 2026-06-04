@@ -51,9 +51,8 @@ class FakeTroubleshootingAgent:
             root_field=root_field,
             status="invalid",
             issues=["Cannot query field 'county' on type 'Query'. Did you mean 'country'?"],
-            suggestion="Use the schema field `country` instead of `county`.",
-            corrected_operation="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
-            plan=["Validate input", "Parse and validate GraphQL"],
+            detail="Use the schema field `country` instead of `county`.",
+            suggestion="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
             raw_response="raw",
         )
 
@@ -133,15 +132,14 @@ class ApiTest(unittest.TestCase):
                 "root_field": "county",
                 "status": "invalid",
                 "issues": ["Cannot query field 'county' on type 'Query'. Did you mean 'country'?"],
-                "suggestion": "Use the schema field `country` instead of `county`.",
-                "corrected_operation": [
+                "detail": "Use the schema field `country` instead of `county`.",
+                "suggestion": [
                     "query CountryQuery($code: ID!) {",
                     "  country(code: $code) {",
                     "    code",
                     "  }",
                     "}",
                 ],
-                "plan": ["Validate input", "Parse and validate GraphQL"],
             },
             response.json(),
         )

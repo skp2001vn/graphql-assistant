@@ -174,22 +174,27 @@ The response is JSON:
   "issues": [
     "Cannot query field 'code1' on type 'Country'. Did you mean 'code'? Location: line 3, column 5."
   ],
-  "suggestion": "Use the schema field `code` instead of `code1`.",
-  "corrected_operation": [
+  "detail": "Use the schema field `code` instead of `code1`.",
+  "suggestion": [
     "query CountryQuery($code: ID!) {",
     "  country(code: $code) {",
     "    code",
     "    name",
     "  }",
     "}"
-  ],
-  "plan": [
-    "Validate input",
-    "Parse and validate GraphQL",
-    "Retrieve schema context",
-    "Generate troubleshooting guidance",
-    "Validate corrected operation"
   ]
+}
+```
+
+When the submitted GraphQL operation is valid, troubleshooting returns empty issue and guidance fields:
+
+```json
+{
+  "root_field": "country",
+  "status": "valid",
+  "issues": [],
+  "detail": "",
+  "suggestion": []
 }
 ```
 
@@ -199,8 +204,8 @@ The response is JSON:
 2. Plan: validate input, parse and validate GraphQL, retrieve schema context, generate guidance, and validate the correction.
 3. Tools: input guardrail, GraphQL-core validation, and RAG schema retrieval.
 4. Tool observations: syntax locations, schema validation errors, and retrieved schema context.
-5. Inference: Ollama receives the observations and proposes a suggestion plus corrected operation.
-6. Guardrail: the corrected operation is validated before it is returned. If it is still invalid, the API returns an empty `corrected_operation` and includes the validation issue.
+5. Inference: Ollama receives the observations and proposes detail text plus a suggested operation.
+6. Guardrail: the suggested operation is validated before it is returned. If it is still invalid, the API returns an empty `suggestion` and includes the validation issue.
 
 ## Tests
 
