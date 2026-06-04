@@ -22,3 +22,4 @@ class GeneratedGraphQLSample:
     operation: str
     variables: dict[str, Any]
     raw_response: str
+

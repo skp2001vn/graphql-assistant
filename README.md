@@ -137,6 +137,8 @@ graphql_ai/
     config.py          # Environment-backed application settings
     protocols.py       # Protocol contracts used by services
     responses.py       # Shared response formatting
+  domain/
+    models.py          # Domain dataclasses shared by services and RAG
   llm/
     base.py            # LLM client protocol
     ollama_client.py   # Ollama HTTP client
