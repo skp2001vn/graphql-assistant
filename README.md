@@ -130,13 +130,27 @@ The API currently uses the RAG technique. It builds or reuses the Chroma schema 
 The app includes two local caches:
 
 - Chroma schema index cache: avoids re-embedding `resources/schema.graphql` on every run.
+- Schema-context cache: avoids re-embedding and querying Chroma for repeated natural-language requests.
 - Inference response cache: avoids calling Ollama again when the final prompt and model settings are identical.
 
-The inference cache is useful for local demos because generation is usually the slowest step. It is keyed by the full prompt plus model settings, so changing the request, retrieved schema context, model, `OLLAMA_NUM_PREDICT`, or `OLLAMA_THINK` produces a different cache entry.
+The inference cache is useful for local demos because generation is usually the slowest step. It is keyed by the full prompt plus model settings, so changing the request, retrieved schema context, model, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_CTX`, `OLLAMA_KEEP_ALIVE`, or `OLLAMA_THINK` produces a different cache entry.
+
+Ollama runtime options are also tuned for local responsiveness:
+
+- `OLLAMA_KEEP_ALIVE=10m` keeps the model loaded between requests.
+- `OLLAMA_NUM_CTX` optionally controls the context window size.
+- `OLLAMA_NUM_PREDICT=600` keeps the maximum output smaller for this simple schema.
+- `PROMPT_COMPRESSION_ENABLED=true` keeps schema context and instructions compact before calling Ollama.
 
 Defaults:
 
 ```bash
+OLLAMA_KEEP_ALIVE=10m
+OLLAMA_NUM_CTX=
+OLLAMA_NUM_PREDICT=600
+PROMPT_COMPRESSION_ENABLED=true
+SCHEMA_CONTEXT_CACHE_ENABLED=true
+SCHEMA_CONTEXT_CACHE_PATH=.cache/schema_context
 INFERENCE_CACHE_ENABLED=true
 INFERENCE_CACHE_PATH=.cache/inference
 ```
@@ -150,7 +164,7 @@ INFERENCE_CACHE_ENABLED=false uvicorn graphql_ai.main:app --host 0.0.0.0 --port 
 To clear cached responses:
 
 ```bash
-rm -rf .cache/inference
+rm -rf .cache/inference .cache/schema_context
 ```
 
 ## Project Structure
@@ -204,8 +218,13 @@ EMBEDDING_MODEL=resources/models/all-MiniLM-L6-v2
 OLLAMA_URL=http://127.0.0.1:11434/api/generate
 OLLAMA_MODEL=qwen2.5-coder:3b
 OLLAMA_TIMEOUT_SECONDS=300
-OLLAMA_NUM_PREDICT=1200
+OLLAMA_KEEP_ALIVE=10m
+OLLAMA_NUM_CTX=
+OLLAMA_NUM_PREDICT=600
 OLLAMA_THINK=false
+PROMPT_COMPRESSION_ENABLED=true
+SCHEMA_CONTEXT_CACHE_ENABLED=true
+SCHEMA_CONTEXT_CACHE_PATH=.cache/schema_context
 INFERENCE_CACHE_ENABLED=true
 INFERENCE_CACHE_PATH=.cache/inference
 ```

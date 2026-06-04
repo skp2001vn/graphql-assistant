@@ -11,11 +11,22 @@ class OllamaClient:
         self.settings = settings or get_settings()
 
     def generate(self, prompt: str) -> str:
-        """Generate text by sending a prompt to the configured Ollama endpoint."""
+        """Generate text with runtime options tuned for local inference.
+
+        `keep_alive` keeps the model loaded between requests, `num_predict`
+        limits maximum output length, and `num_ctx` can constrain or expand the
+        context window when configured.
+        """
         try:
             import requests
         except ImportError as exc:
             raise RuntimeError("Missing dependency: install requests with `pip install -r requirements.txt`.") from exc
+
+        options = {
+            "num_predict": self.settings.ollama_num_predict,
+        }
+        if self.settings.ollama_num_ctx is not None:
+            options["num_ctx"] = self.settings.ollama_num_ctx
 
         response = requests.post(
             self.settings.ollama_url,
@@ -24,9 +35,8 @@ class OllamaClient:
                 "prompt": prompt,
                 "stream": False,
                 "think": self.settings.ollama_think,
-                "options": {
-                    "num_predict": self.settings.ollama_num_predict,
-                },
+                "keep_alive": self.settings.ollama_keep_alive,
+                "options": options,
             },
             timeout=self.settings.ollama_timeout_seconds,
         )

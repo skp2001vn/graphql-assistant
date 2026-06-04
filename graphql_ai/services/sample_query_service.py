@@ -14,30 +14,13 @@ from graphql_ai.llm.ollama_client import OllamaClient
 from graphql_ai.rag.vector_store import SchemaVectorStore
 
 
-GRAPHQL_SYSTEM_PROMPT = """You are a GraphQL expert.
+GRAPHQL_SYSTEM_PROMPT = (
+    "You are a GraphQL expert. Use only schema fields. Include all fields for the requested "
+    "response type, expand nested objects/lists, use variables, and return exactly two fenced "
+    "code blocks: GraphQL operation, then variables JSON."
+)
 
-Generate a valid GraphQL query or mutation from the provided schema context.
-
-Rules:
-- Use only fields and arguments that exist in the schema.
-- Include all fields for the requested response type.
-- Expand nested objects and lists using their schema fields.
-- Use variables for argument values.
-- Return only two fenced code blocks with no labels or headings: first GraphQL operation, second Variables JSON.
-"""
-
-GRAPHQL_USER_PROMPT_TEMPLATE = """Schema:
-
-{schema_context}
-
-Request:
-
-{user_request}
-
-Return:
-1. GraphQL operation in a code block
-2. Variables JSON in a code block
-"""
+GRAPHQL_USER_PROMPT_TEMPLATE = "Schema:\n{schema_context}\n\nRequest:\n{user_request}"
 
 VARIABLE_DEFINITION = re.compile(r"\$([_A-Za-z][_0-9A-Za-z]*)\s*:\s*([!\[\]_0-9A-Za-z]+)")
 
@@ -94,7 +77,12 @@ class SampleQueryService:
         self._generation_lock = Lock()
 
     def generate(self, user_request: str) -> GeneratedGraphQLSample:
-        """Generate a sample GraphQL operation and variables for a user request."""
+        """Generate a sample GraphQL operation and variables for a user request.
+
+        The prompt is compressed by default: retrieved schema chunks are compacted
+        and the instruction template is intentionally short to reduce local model
+        input tokens.
+        """
         with self._generation_lock:
             schema_context = self.schema_context_provider.retrieve_schema_context(user_request)
             raw_response = self.llm_client.generate(self._build_prompt(schema_context, user_request))

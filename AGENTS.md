@@ -66,7 +66,10 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 
 - Keep inference optimization in the LLM or service layer, not in API route handlers.
 - Preserve the local prompt/response cache unless the change explicitly replaces it.
-- Cache keys must include the full prompt plus model settings that affect output.
+- Preserve schema-context caching unless the change explicitly replaces request retrieval behavior.
+- Prompt cache keys must include the full prompt plus model settings that affect output.
+- Schema-context cache keys must include the user request and schema fingerprint.
+- Keep prompt compression enabled by default for local inference; include compression settings in cache keys.
 - Store runtime cache artifacts under ignored paths such as `.cache/`.
 - Prefer small composable wrappers, such as cached LLM clients, over special cases inside business methods.
 

@@ -14,7 +14,12 @@ CACHE_METADATA_FILE = "index_metadata.json"
 
 
 class SchemaVectorStore:
-    """Chroma-backed RAG store for GraphQL schema chunks."""
+    """Chroma-backed RAG store for GraphQL schema chunks.
+
+    The vector index is persisted in Chroma, while repeated request-to-context
+    retrievals can be cached separately. This avoids recomputing the request
+    embedding and Chroma query when the same prompt is repeated.
+    """
 
     def __init__(
         self,
@@ -26,9 +31,22 @@ class SchemaVectorStore:
         self.settings = settings or get_settings()
         self.allow_downloads = allow_downloads
         self.collection = self._build_collection(rebuild=rebuild)
+        self.schema_fingerprint = self._schema_fingerprint()
 
     def retrieve_schema_context(self, user_request: str) -> str:
-        """Retrieve schema chunks relevant to a natural-language request."""
+        """Retrieve compact schema chunks relevant to a natural-language request.
+
+        When enabled, this method caches the final schema context by request,
+        schema fingerprint, embedding model, collection name, and compression
+        setting.
+        """
+        cache_key = self._schema_context_cache_key(user_request)
+        if self.settings.schema_context_cache_enabled:
+            cached_context = self._read_schema_context_cache(cache_key)
+            if cached_context is not None:
+                print("Using cached schema context.")
+                return cached_context
+
         results = self.collection.query(
             query_embeddings=embed_texts(
                 [user_request],
@@ -43,12 +61,16 @@ class SchemaVectorStore:
 
         context_parts = []
         for document, metadata in zip(documents, metadatas):
-            source = metadata.get("source", "unknown")
             kind = metadata.get("kind", "definition")
             name = metadata.get("name", "unknown")
-            context_parts.append(f"# Source: {source} ({kind} {name})\n{document}")
+            chunk_text = self._format_schema_chunk(document, kind, name)
+            context_parts.append(chunk_text)
 
-        return "\n\n".join(context_parts)
+        schema_context = "\n\n".join(context_parts)
+        if self.settings.schema_context_cache_enabled:
+            self._write_schema_context_cache(cache_key, schema_context)
+
+        return schema_context
 
     def _build_collection(self, rebuild: bool):
         try:
@@ -130,3 +152,52 @@ class SchemaVectorStore:
         path = self._cache_metadata_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _schema_context_cache_key(self, user_request: str) -> str:
+        key_material = json.dumps(
+            {
+                "user_request": user_request,
+                "schema_fingerprint": self.schema_fingerprint,
+                "prompt_compression_enabled": self.settings.prompt_compression_enabled,
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(key_material.encode("utf-8")).hexdigest()
+
+    def _schema_context_cache_path(self, key: str) -> Path:
+        return self.settings.schema_context_cache_path / f"{key}.json"
+
+    def _read_schema_context_cache(self, key: str) -> str | None:
+        path = self._schema_context_cache_path(key)
+        if not path.exists():
+            return None
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return None
+
+        schema_context = payload.get("schema_context")
+        return schema_context if isinstance(schema_context, str) else None
+
+    def _write_schema_context_cache(self, key: str, schema_context: str) -> None:
+        path = self._schema_context_cache_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "key": key,
+                    "schema_context": schema_context,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    def _format_schema_chunk(self, document: str, kind: str, name: str) -> str:
+        if not self.settings.prompt_compression_enabled:
+            return f"# {kind} {name}\n{document}"
+
+        compact_document = " ".join(line.strip() for line in document.splitlines() if line.strip())
+        return f"{kind} {name}: {compact_document}"
