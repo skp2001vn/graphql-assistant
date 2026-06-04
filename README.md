@@ -174,7 +174,9 @@ The response is JSON:
   "issues": [
     "Cannot query field 'code1' on type 'Country'. Did you mean 'code'? Location: line 3, column 5."
   ],
-  "detail": "Use the schema field `code` instead of `code1`.",
+  "detail": [
+    "Use the schema field `code` instead of `code1`."
+  ],
   "suggestion": [
     "query CountryQuery($code: ID!) {",
     "  country(code: $code) {",
@@ -193,7 +195,7 @@ When the submitted GraphQL operation is valid, troubleshooting returns empty iss
   "root_field": "country",
   "status": "valid",
   "issues": [],
-  "detail": "",
+  "detail": [],
   "suggestion": []
 }
 ```
@@ -206,6 +208,12 @@ When the submitted GraphQL operation is valid, troubleshooting returns empty iss
 4. Tool observations: syntax locations, schema validation errors, and retrieved schema context.
 5. Inference: Ollama receives the observations and proposes detail text plus a suggested operation.
 6. Guardrail: the suggested operation is validated before it is returned. If it is still invalid, the API returns an empty `suggestion` and includes the validation issue.
+
+Troubleshooting response fields come from different parts of the agent workflow:
+
+- `issues`: GraphQL-core validation output.
+- `detail`: Ollama explanation for invalid calls. If the first model response omits detail, the agent sends a detail-only prompt to Ollama.
+- `suggestion`: Ollama suggested operation, validated again with GraphQL-core before returning.
 
 ## Tests
 
@@ -227,7 +235,7 @@ The app applies input and output guardrails:
 - Invalid output is rejected before the API returns it, including malformed GraphQL, invented fields, missing required arguments, scalar fields with nested selections, and variable type mismatches.
 - A separate variable-usage check rejects Variables JSON entries that are not referenced by the GraphQL operation.
 - The troubleshooting agent captures syntax errors with line and column locations before asking the model for guidance.
-- The troubleshooting agent validates its corrected operation before returning it.
+- The troubleshooting agent validates its suggested operation before returning it.
 
 These checks keep LLM output aligned with the schema and the API response contract.
 
@@ -266,7 +274,7 @@ OLLAMA_SEED=42
 OLLAMA_PRE_WARM_ENABLED=true
 OLLAMA_PRE_WARM_PROMPT=OK
 PROMPT_COMPRESSION_ENABLED=true
-PROMPT_CONTRACT_VERSION=22
+PROMPT_CONTRACT_VERSION=25
 SCHEMA_CONTEXT_CACHE_ENABLED=true
 SCHEMA_CONTEXT_CACHE_PATH=.cache/schema_context
 SCHEMA_CONTEXT_TOP_K=5
@@ -370,7 +378,7 @@ OLLAMA_PRE_WARM_ENABLED=true
 OLLAMA_PRE_WARM_PROMPT=OK
 OLLAMA_THINK=false
 PROMPT_COMPRESSION_ENABLED=true
-PROMPT_CONTRACT_VERSION=22
+PROMPT_CONTRACT_VERSION=25
 SCHEMA_CONTEXT_CACHE_ENABLED=true
 SCHEMA_CONTEXT_CACHE_PATH=.cache/schema_context
 INFERENCE_CACHE_ENABLED=true

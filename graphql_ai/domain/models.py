@@ -26,11 +26,11 @@ class GeneratedGraphQLSample:
 
 @dataclass(frozen=True)
 class TroubleshootingResult:
-    """Troubleshooting result produced by the GraphQL agent workflow."""
+    """Troubleshooting result with validator issues and Ollama-generated detail."""
 
     root_field: str
     status: str
     issues: list[str]
-    detail: str
+    detail: list[str]
     suggestion: str
     raw_response: str

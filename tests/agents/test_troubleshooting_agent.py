@@ -7,6 +7,7 @@ from pathlib import Path
 from graphql_ai.agents.troubleshooting_agent import (
     GraphQLValidationTool,
     TroubleshootingAgent,
+    clean_model_detail,
     parse_troubleshooting_response,
 )
 from graphql_ai.core.config import AppSettings
@@ -34,13 +35,16 @@ type Continent {
 
 
 class FakeLLMClient:
-    def __init__(self, response: str) -> None:
-        self.response = response
+    def __init__(self, response: str | list[str]) -> None:
+        self.responses = response if isinstance(response, list) else [response]
         self.prompts: list[str] = []
 
     def generate(self, prompt: str) -> str:
         self.prompts.append(prompt)
-        return self.response
+        if len(self.responses) == 1:
+            return self.responses[0]
+
+        return self.responses.pop(0)
 
 
 class FakeSchemaContextProvider:
@@ -111,8 +115,80 @@ query CountryQuery($code: ID!) {
 """
         )
 
-        self.assertIn("country", detail)
+        self.assertIn("country", detail[0])
         self.assertIn("country(code: $code)", suggestion)
+
+    def test_parse_troubleshooting_response_normalizes_json_detail(self) -> None:
+        detail, suggestion = parse_troubleshooting_response(
+            r'''
+```json
+{
+  "errors": [
+    {
+      "message": "Cannot query field 'coe' on type 'Country'. Did you mean 'code'?",
+      "locations": [{"line": 3, "column": 5}]
+    },
+    {
+      "message": "Cannot query field 'nae' on type 'Country'. Did you mean 'name'?",
+      "locations": [{"line": 4, "column": 5}]
+    }
+  ]
+}
+```
+'''
+        )
+
+        self.assertEqual(
+            [
+                "Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5.",
+                "Cannot query field 'nae' on type 'Country'. Did you mean 'name'? Location: line 4, column 5.",
+            ],
+            detail,
+        )
+        self.assertEqual("", suggestion)
+
+    def test_parse_troubleshooting_response_does_not_duplicate_json_locations(self) -> None:
+        detail, suggestion = parse_troubleshooting_response(
+            r'''
+```json
+{
+  "errors": [
+    {
+      "message": "Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5.",
+      "locations": [{"line": 3, "column": 5}]
+    }
+  ]
+}
+```
+'''
+        )
+
+        self.assertEqual(
+            ["Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5."],
+            detail,
+        )
+        self.assertEqual("", suggestion)
+
+    def test_clean_model_detail_removes_raw_issues_and_graphql_code(self) -> None:
+        detail = [
+            "1. **Cannot query field 'coe' on type 'Country'. Did you mean 'code'?**",
+            "- Change `coe` to `code` in the submitted operation.",
+            "**Edit the GraphQL operation:**",
+            "**Edit the submitted GraphQL operation:**",
+            "```graphql",
+            "query CountryQuery($code: ID!) {",
+            "  country(code: $code) {",
+            "    code",
+            "  }",
+            "}",
+            "```",
+        ]
+        issues = ["Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5."]
+
+        self.assertEqual(
+            ["Change `coe` to `code` in the submitted operation."],
+            clean_model_detail(detail, issues),
+        )
 
     def test_agent_runs_plan_tools_and_validates_suggested_operation(self) -> None:
         llm_response = """
@@ -151,7 +227,7 @@ query CountyQuery($code: ID!) {
         self.assertEqual("county", result.root_field)
         self.assertEqual("invalid", result.status)
         self.assertIn("Cannot query field 'county'", result.issues[0])
-        self.assertIn("Use the schema field", result.detail)
+        self.assertIn("Use the schema field", result.detail[0])
         self.assertIn("country(code: $code)", result.suggestion)
         self.assertEqual(
             ["Troubleshoot GraphQL Query or Mutation root field county"],
@@ -198,7 +274,7 @@ query CountryQuery($code: ID!) {
 
         self.assertEqual("valid", result.status)
         self.assertEqual([], result.issues)
-        self.assertEqual("", result.detail)
+        self.assertEqual([], result.detail)
         self.assertEqual("", result.suggestion)
         self.assertEqual("", result.raw_response)
         self.assertEqual([], llm_client.prompts)
@@ -232,8 +308,8 @@ query CountryQuery {
         self.assertEqual("", result.suggestion)
         self.assertTrue(any("Corrected operation was still invalid" in issue for issue in result.issues))
 
-    def test_agent_uses_validation_issue_as_detail_when_model_returns_only_operation(self) -> None:
-        llm_response = """
+    def test_agent_gets_detail_from_ollama_when_first_response_returns_only_operation(self) -> None:
+        first_response = """
 ```graphql
 query CountryQuery($code: ID!) {
   country(code: $code) {
@@ -243,9 +319,10 @@ query CountryQuery($code: ID!) {
 }
 ```
 """
+        second_response = "The root field `county` is not part of the schema. Use `country` for this lookup."
         agent = TroubleshootingAgent(
             settings=self.settings,
-            llm_client=FakeLLMClient(llm_response),
+            llm_client=FakeLLMClient([first_response, second_response]),
             schema_context_provider=FakeSchemaContextProvider(),
         )
 
@@ -254,8 +331,47 @@ query CountryQuery($code: ID!) {
             "query CountyQuery($code: ID!) { county(code: $code) { code } }",
         )
 
-        self.assertIn("Cannot query field 'county'", result.detail)
+        self.assertEqual(
+            ["The root field `county` is not part of the schema. Use `country` for this lookup."],
+            result.detail,
+        )
         self.assertIn("country(code: $code)", result.suggestion)
+        self.assertEqual(2, len(agent.llm_client.prompts))
+        self.assertIn("The schema is fixed", agent.llm_client.prompts[1])
+
+    def test_agent_retries_detail_when_model_repeats_validation_issue(self) -> None:
+        raw_issue = "Cannot query field 'county' on type 'Query'. Did you mean 'country'?"
+        first_response = f"""
+```text
+- {raw_issue}
+```
+
+```graphql
+query CountryQuery($code: ID!) {{
+  country(code: $code) {{
+    code
+    name
+  }}
+}}
+```
+"""
+        second_response = "Use `country` as the root field because `county` is not defined in the schema."
+        agent = TroubleshootingAgent(
+            settings=self.settings,
+            llm_client=FakeLLMClient([first_response, second_response]),
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        result = agent.troubleshoot(
+            "county",
+            "query CountyQuery($code: ID!) { county(code: $code) { code } }",
+        )
+
+        self.assertEqual(
+            ["Use `country` as the root field because `county` is not defined in the schema."],
+            result.detail,
+        )
+        self.assertEqual(2, len(agent.llm_client.prompts))
 
 
 if __name__ == "__main__":

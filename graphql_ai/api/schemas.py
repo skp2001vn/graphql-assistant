@@ -18,7 +18,7 @@ class TroubleshootingResponse(BaseModel):
     root_field: str = Field(description="GraphQL Query or Mutation field name being troubleshot.")
     status: str = Field(description="Validation status for the submitted GraphQL operation.")
     issues: list[str] = Field(default_factory=list, description="Syntax or schema issues found by tools.")
-    detail: str = Field(description="Agent-generated troubleshooting guidance.")
+    detail: list[str] = Field(default_factory=list, description="Ollama-generated troubleshooting guidance lines.")
     suggestion: list[str] = Field(
         default_factory=list,
         description="Agent-suggested GraphQL operation formatted as lines.",

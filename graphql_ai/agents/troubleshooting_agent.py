@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from threading import Lock
@@ -28,11 +29,40 @@ TROUBLESHOOTING_SYSTEM_PROMPT = (
     "with a user's GraphQL operation and suggest a corrected operation. Use the tool "
     "observations and schema context. Tool observations are authoritative: do not add "
     "issues that are not listed in the validation issues. Do not invent schema fields. "
-    "Return exactly two fenced code blocks: detail text, then a GraphQL suggested operation."
+    "Return exactly two fenced code blocks: first plain-language detail text, then a GraphQL "
+    "suggested operation. The detail text must explain the likely cause and fix in natural "
+    "language. Do not return JSON in the detail block and do not repeat the validation issue "
+    "verbatim. A 'Cannot query field' validation issue refers to a selected response field, "
+    "not an argument."
 )
 
 TROUBLESHOOTING_PROMPT_TEMPLATE = """Plan:
 {plan}
+
+Root field:
+{root_field}
+
+Schema context:
+{schema_context}
+
+Validation issues:
+{issues}
+
+User GraphQL operation:
+{graphql_call}
+"""
+
+TROUBLESHOOTING_DETAIL_PROMPT_TEMPLATE = """Explain these GraphQL validation issues in plain language.
+
+Rules:
+- Return only 1 to 3 short explanation lines.
+- Do not return JSON.
+- Do not return GraphQL code.
+- Do not repeat the validation issue verbatim.
+- The schema is fixed. Do not suggest changing or adding fields to the schema.
+- Explain how to edit the submitted GraphQL operation.
+- When a validation issue says "Did you mean ...", use that as the fix.
+- A "Cannot query field" issue refers to a selected response field, not an argument.
 
 Root field:
 {root_field}
@@ -143,7 +173,7 @@ class TroubleshootingAgent:
                 root_field=normalized_root_field,
                 status="valid",
                 issues=[],
-                detail="",
+                detail=[],
                 suggestion="",
                 raw_response="",
             )
@@ -161,9 +191,26 @@ class TroubleshootingAgent:
             )
 
         detail, suggested_operation = parse_troubleshooting_response(raw_response)
-        if not suggested_operation and looks_like_graphql_operation(detail):
-            suggested_operation = detail
-            detail = default_detail_from_issues(validation_observation.issues)
+        detail_text = "\n".join(detail)
+        if not suggested_operation and looks_like_graphql_operation(detail_text):
+            suggested_operation = detail_text
+            detail = []
+        detail = clean_model_detail(detail, validation_observation.issues)
+        if should_generate_detail(detail, validation_observation.issues):
+            with self._inference_lock:
+                detail = clean_model_detail(
+                    normalize_detail(
+                        self.llm_client.generate(
+                            self._build_detail_prompt(
+                                root_field=normalized_root_field,
+                                graphql_call=normalized_graphql_call,
+                                schema_context=schema_context,
+                                issues=validation_observation.issues,
+                            )
+                        )
+                    ),
+                    validation_observation.issues,
+                )
 
         corrected_issues = []
         if suggested_operation:
@@ -200,6 +247,20 @@ class TroubleshootingAgent:
         )
         return f"{TROUBLESHOOTING_SYSTEM_PROMPT}\n\n{user_prompt}"
 
+    def _build_detail_prompt(
+        self,
+        root_field: str,
+        graphql_call: str,
+        schema_context: str,
+        issues: list[str],
+    ) -> str:
+        return TROUBLESHOOTING_DETAIL_PROMPT_TEMPLATE.format(
+            root_field=root_field,
+            schema_context=schema_context,
+            issues="\n".join(f"- {issue}" for issue in issues),
+            graphql_call=graphql_call,
+        )
+
     def _build_default_llm_client(self) -> LLMClient:
         ollama_client = OllamaClient(settings=self.settings)
         if not self.settings.inference_cache_enabled:
@@ -212,15 +273,87 @@ class TroubleshootingAgent:
         )
 
 
-def parse_troubleshooting_response(raw_response: str) -> tuple[str, str]:
+def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:
     """Parse agent inference into detail text and a suggested operation."""
     code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
     if not code_blocks:
-        return raw_response.strip(), ""
+        return normalize_detail(raw_response), ""
 
-    detail = code_blocks[0].strip()
+    detail = normalize_detail(code_blocks[0])
     suggested_operation = code_blocks[1].strip() if len(code_blocks) > 1 else ""
     return detail, suggested_operation
+
+
+def normalize_detail(raw_detail: str) -> list[str]:
+    """Normalize model detail output into readable response lines."""
+    detail = raw_detail.strip()
+    if not detail:
+        return []
+
+    parsed_detail = _parse_json_detail(detail)
+    if parsed_detail:
+        return parsed_detail
+
+    return [line.strip() for line in detail.splitlines() if line.strip()]
+
+
+def clean_model_detail(detail: list[str], issues: list[str]) -> list[str]:
+    """Keep only model-generated explanation lines for the response detail field."""
+    cleaned_detail = []
+    in_code_block = False
+    normalized_issues = [_normalize_issue_line(issue) for issue in issues]
+
+    for line in detail:
+        stripped_line = line.strip()
+        if stripped_line.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        if looks_like_graphql_operation(stripped_line) or stripped_line in {"{", "}"}:
+            continue
+        normalized_heading = stripped_line.lower().strip("* ")
+        if normalized_heading.startswith(("edit the graphql operation", "edit the submitted graphql operation")):
+            continue
+
+        normalized_line = _normalize_issue_line(stripped_line)
+        if any(issue in normalized_line or normalized_line in issue for issue in normalized_issues):
+            continue
+
+        cleaned_detail.append(stripped_line.lstrip("- ").strip())
+
+    return cleaned_detail
+
+
+def _parse_json_detail(detail: str) -> list[str]:
+    try:
+        payload = json.loads(detail)
+    except json.JSONDecodeError:
+        return []
+
+    if isinstance(payload, dict) and isinstance(payload.get("errors"), list):
+        return [_format_json_error(error) for error in payload["errors"] if isinstance(error, dict)]
+    if isinstance(payload, dict) and isinstance(payload.get("message"), str):
+        return [_format_json_error(payload)]
+
+    return []
+
+
+def _format_json_error(error: dict[str, Any]) -> str:
+    message = str(error.get("message", "")).strip()
+    if "Location:" in message:
+        return message
+
+    locations = error.get("locations")
+    if isinstance(locations, list) and locations:
+        location_parts = []
+        for location in locations:
+            if isinstance(location, dict) and "line" in location and "column" in location:
+                location_parts.append(f"line {location['line']}, column {location['column']}")
+        if location_parts:
+            return f"{message} Location: {', '.join(location_parts)}."
+
+    return message
 
 
 def looks_like_graphql_operation(value: str) -> bool:
@@ -229,12 +362,24 @@ def looks_like_graphql_operation(value: str) -> bool:
     return stripped_value.startswith(("query ", "mutation ", "subscription ", "{"))
 
 
-def default_detail_from_issues(issues: list[str]) -> str:
-    """Create deterministic detail text when inference only returns an operation."""
-    if issues:
-        return issues[0]
+def should_generate_detail(detail: list[str], issues: list[str]) -> bool:
+    """Return whether a second detail-only inference call is needed."""
+    normalized_detail = [_normalize_issue_line(line) for line in detail]
+    normalized_issues = [_normalize_issue_line(issue) for issue in issues]
+    repeats_validator_issue = any(
+        issue in detail_line or detail_line in issue
+        for issue in normalized_issues
+        for detail_line in normalized_detail
+    )
+    contains_graphql_code = any("```" in line or looks_like_graphql_operation(line) for line in detail)
+    return bool(issues) and (not detail or repeats_validator_issue or contains_graphql_code)
 
-    return "No validation issues were found."
+
+def _normalize_issue_line(value: str) -> str:
+    normalized_value = value.strip().lstrip("- ").strip()
+    normalized_value = re.sub(r"^\d+\.\s*", "", normalized_value)
+    normalized_value = normalized_value.strip("*` ")
+    return re.sub(r"\s+Location:.*$", "", normalized_value).strip()
 
 
 def format_graphql_issue(error: Exception) -> str:
