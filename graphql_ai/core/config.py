@@ -16,7 +16,7 @@ def _read_bool_env(name: str, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class AppSettings:
-    """Environment-backed application settings."""
+    """Environment-backed settings for RAG, inference, caches, and guardrails."""
 
     schema_file: Path = field(
         default_factory=lambda: Path(os.getenv("GRAPHQL_SCHEMA_FILE", "resources/schema.graphql"))
@@ -52,8 +52,9 @@ class AppSettings:
     def inference_cache_namespace(self) -> str:
         """Return cache namespace fields that affect model output.
 
-        The namespace intentionally includes generation settings so prompt-cache
-        entries are invalidated when model behavior changes.
+        The namespace intentionally includes inference settings, prompt
+        compression, and model pre-warm flags so prompt-cache entries are
+        invalidated when model behavior changes.
         """
         return "|".join(
             [

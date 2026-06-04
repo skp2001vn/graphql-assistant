@@ -4,15 +4,34 @@ This is a small app for generating sample GraphQL calls from a local schema.
 
 The current implementation uses RAG. The structure is intentionally open for adding other GraphQL AI capabilities later, such as agents, planning workflows, inference optimization, model routing, and prompt evaluation.
 
-The current RAG flow:
+## AI Concepts Covered
+
+This project highlights common AI application patterns:
+
+- **RAG**: retrieves schema context before generation.
+- **Embeddings**: converts GraphQL SDL chunks into vectors.
+- **Vector store**: persists schema embeddings in Chroma.
+- **Retrieval**: selects schema chunks relevant to the user request.
+- **Prompt construction**: combines system instructions, retrieved context, and the user request.
+- **Prompt compression**: keeps retrieved schema context compact for local inference.
+- **Inference**: sends the final prompt to a local Ollama LLM.
+- **Inference cache**: reuses responses for identical prompts and model settings.
+- **Model pre-warm**: loads the local model during API startup to reduce first-request latency.
+- **Guardrails**: validates generated GraphQL before returning it.
+- **Agents and planning**: future extension points for multi-step GraphQL workflows.
+- **Model routing and prompt evaluation**: future extension points for selecting and assessing model behavior.
+
+The current RAG pipeline:
 
 1. Reads `resources/schema.graphql`.
 2. Splits the SDL into schema chunks.
 3. Embeds those chunks with a local sentence-transformers model.
 4. Stores the embeddings in a local Chroma index.
-5. Retrieves schema context for your request.
-6. Checks the local inference cache for the final prompt.
-7. Sends only uncached prompt context to local Ollama and prints the GraphQL operation plus Variables JSON.
+5. Runs retrieval to select schema context for your request.
+6. Builds the final prompt from system instructions, schema context, and the user request.
+7. Checks the local inference cache for the final prompt.
+8. Sends only uncached prompt context to local Ollama for inference.
+9. Applies GraphQL guardrails and returns the GraphQL operation plus Variables JSON.
 
 Because `resources/schema.graphql` is rarely updated, the Chroma index is cached and reused after the first run.
 
@@ -123,7 +142,7 @@ You can also pass a custom request:
 curl "http://localhost:8080/sample/country?request=Generate%20a%20sample%20query%20for%20all%20countries"
 ```
 
-The API currently uses RAG. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
+The API currently uses RAG. It builds or reuses the Chroma schema index once during application startup, then each endpoint call runs retrieval, builds a prompt, asks Ollama to generate the sample GraphQL call, and applies guardrails before returning the response.
 
 ## Tests
 
@@ -144,22 +163,26 @@ The app applies guardrails after model generation:
 - Invalid output is rejected before the API returns it, including malformed GraphQL, invented fields, missing required arguments, scalar fields with nested selections, and variable type mismatches.
 - A separate variable-usage check rejects Variables JSON entries that are not referenced by the GraphQL operation.
 
+These checks keep LLM output aligned with the schema and the API response contract.
+
 ## Inference Optimization
 
-The app includes two local caches:
+The app includes local inference and retrieval optimizations:
 
 - Chroma schema index cache: avoids re-embedding `resources/schema.graphql` on every run.
 - Schema-context cache: avoids re-embedding and querying Chroma for repeated natural-language requests.
 - Inference response cache: avoids calling Ollama again when the final prompt and model settings are identical.
+- Prompt compression: reduces prompt tokens by compacting schema context.
+- Model pre-warm: loads the local model during FastAPI startup.
 
-The inference cache is useful for local demos because generation is usually the slowest step. It is keyed by the full prompt plus model settings, so changing the request, retrieved schema context, model, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_CTX`, `OLLAMA_KEEP_ALIVE`, or `OLLAMA_THINK` produces a different cache entry.
+The inference cache is useful because generation is usually the slowest step. It is keyed by the full prompt plus model settings, so changing the request, retrieved schema context, model, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_CTX`, `OLLAMA_KEEP_ALIVE`, or `OLLAMA_THINK` produces a different cache entry.
 
 Ollama runtime options are also tuned for local responsiveness:
 
 - `OLLAMA_KEEP_ALIVE=10m` keeps the model loaded between requests.
 - `OLLAMA_NUM_CTX` optionally controls the context window size.
 - `OLLAMA_NUM_PREDICT=600` keeps the maximum output smaller for this simple schema.
-- `PROMPT_COMPRESSION_ENABLED=true` keeps schema context and instructions compact before calling Ollama.
+- `PROMPT_COMPRESSION_ENABLED=true` keeps schema context and instructions compact before inference.
 - `OLLAMA_PRE_WARM_ENABLED=true` sends a tiny startup request so the model is loaded before the first API call.
 
 Defaults:
@@ -241,6 +264,9 @@ Design notes:
 - The sample-query service depends on a schema-context protocol, so RAG can be swapped or composed with another approach.
 - Ollama access is isolated behind a client class and an LLM protocol.
 - GraphQL-core validation is used as an output guardrail before generated samples are returned.
+- Prompt construction and output validation stay in the service layer.
+- Retrieval, embeddings, and vector-store concerns stay in the RAG layer.
+- Inference caching and model runtime options stay in the LLM layer.
 - Application settings are centralized in `graphql_ai/core/config.py`.
 - The Chroma collection is initialized once during FastAPI startup instead of being rebuilt per request.
 - Local generation is serialized with a lock because the embedding model and Ollama call are expensive shared resources.

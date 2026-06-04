@@ -57,16 +57,18 @@ class SampleQueryService:
     """Business service for generating sample GraphQL queries.
 
     This service coordinates the application workflow for the sample-query use case:
-    it receives a natural-language request, retrieves schema context through the
-    configured schema-context provider, sends a prompt to the configured LLM
-    client, and parses the model output into a GraphQL operation plus variables.
+    it receives a natural-language request, runs RAG retrieval through the
+    configured schema-context provider, builds a prompt from retrieved context,
+    sends that prompt through the configured LLM client for inference, and parses
+    the model output into a GraphQL operation plus variables.
 
     The current default schema-context provider is RAG-backed: `SchemaVectorStore`
-    chunks the local GraphQL SDL, embeds the chunks, stores them in Chroma, and
-    retrieves relevant schema context for each request. The service depends on
-    the `SchemaContextProvider` protocol, so that RAG can later be replaced or
-    composed with other approaches such as agent workflows or inference
-    optimization without changing the API layer.
+    chunks the local GraphQL SDL, creates embeddings, stores them in a Chroma
+    vector store, and retrieves relevant schema context for each request. The
+    service depends on the `SchemaContextProvider` protocol, so that RAG can
+    later be replaced or composed with other approaches such as agent workflows,
+    planning, model routing, prompt evaluation, or inference optimization without
+    changing the API layer.
 
     This service also applies GraphQL validation as a guardrail: model output is
     parsed and validated against the local SDL before the API returns it, which
@@ -95,10 +97,11 @@ class SampleQueryService:
     def generate(self, user_request: str) -> GeneratedGraphQLSample:
         """Generate a sample GraphQL operation and variables for a user request.
 
-        The prompt is compressed by default: retrieved schema chunks are compacted
-        and the instruction template is intentionally short to reduce local model
-        input tokens. After generation, GraphQL-core validation acts as a
-        guardrail by rejecting operations that do not match the current schema.
+        The request flow is retrieval, prompt construction, inference, parsing,
+        and guardrail validation. The prompt is compressed by default: retrieved
+        schema chunks are compacted and the instruction template is intentionally
+        short to reduce local model input tokens. After generation, GraphQL-core
+        validation rejects operations that do not match the current schema.
         """
         with self._generation_lock:
             schema_context = self.schema_context_provider.retrieve_schema_context(user_request)
@@ -118,10 +121,9 @@ class SampleQueryService:
     def pre_warm(self) -> None:
         """Pre-load the local Ollama model during application startup.
 
-        This is an inference optimization for the API path. It sends a tiny
-        prompt through the configured LLM client so Ollama loads the model before
-        the first user request. The setting trades a slightly slower startup for
-        lower first-request latency.
+        This inference optimization sends a tiny prompt through the configured
+        LLM client so Ollama loads the model before the first user request. The
+        setting trades a slightly slower startup for lower first-request latency.
         """
         if not self.settings.ollama_pre_warm_enabled:
             return

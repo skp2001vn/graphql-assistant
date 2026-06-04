@@ -8,7 +8,7 @@ from graphql_ai.llm.base import LLMClient
 
 
 class PromptResponseCache:
-    """File-backed cache for completed LLM prompt responses."""
+    """File-backed inference cache for completed LLM prompt responses."""
 
     def __init__(self, cache_dir: Path) -> None:
         """Create a cache rooted at the provided directory."""
@@ -49,7 +49,7 @@ class PromptResponseCache:
 
 
 class CachedLLMClient:
-    """LLM client wrapper that caches responses by prompt and model namespace."""
+    """LLM client wrapper that adds inference caching by prompt and model namespace."""
 
     def __init__(self, llm_client: LLMClient, cache: PromptResponseCache, namespace: str) -> None:
         """Create a cached LLM client around another LLM client."""
@@ -58,7 +58,7 @@ class CachedLLMClient:
         self.namespace = namespace
 
     def generate(self, prompt: str) -> str:
-        """Generate text, using a cached response when available."""
+        """Run inference, using a cached response when the prompt was seen before."""
         cache_key = self._cache_key(prompt)
         cached_response = self.cache.get(cache_key)
         if cached_response is not None:

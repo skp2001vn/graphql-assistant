@@ -2,6 +2,22 @@
 
 This repository is a GraphQL AI examples project. The current implementation uses RAG to generate sample GraphQL operations, but future enhancements may add agents, inference optimization, model routing, prompt evaluation, or other approaches.
 
+## AI Concepts
+
+Use consistent AI vocabulary in code comments, docstrings, and docs:
+
+- RAG: schema-context retrieval before generation.
+- Embeddings: vector representations of GraphQL SDL chunks.
+- Vector store: Chroma persistence for schema embeddings.
+- Retrieval: selecting relevant schema chunks for a request.
+- Prompt construction: combining system prompt, retrieved context, and user request.
+- Prompt compression: compacting schema context before inference.
+- Inference: model generation through an LLM provider such as Ollama.
+- Inference cache: prompt/response reuse keyed by prompt and model settings.
+- Model pre-warm: loading the local model during application startup.
+- Guardrails: validation and output checks before returning model output.
+- Agents, planning, model routing, and prompt evaluation: future extension areas.
+
 ## Architecture
 
 Keep code organized by responsibility:
@@ -61,6 +77,8 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Public service classes should describe the business workflow they coordinate.
 - When a service uses RAG, mention that RAG is the current schema-context approach, not the only possible approach.
 - When a service applies validation, safety checks, or output filtering, describe the guardrail behavior clearly.
+- When a service calls an LLM, describe the inference path and any inference cache behavior.
+- When a module uses embeddings, retrieval, vector stores, or prompt compression, use those terms directly.
 - Keep private helper docstrings optional; add them only when the behavior is not obvious.
 
 ## Testing
@@ -77,6 +95,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 ## RAG And Schema Handling
 
 - `resources/schema.graphql` is the default schema and is expected to change rarely.
+- RAG code should keep the flow clear: schema chunking, embeddings, vector-store indexing, retrieval, and schema-context formatting.
 - Preserve Chroma index caching; avoid rebuilding the index per request.
 - If schema indexing behavior changes, keep cache invalidation based on schema content and embedding model.
 - Do not hard-code schema-specific fields outside a default example request unless the user explicitly asks for a schema-specific demo.
@@ -87,11 +106,13 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Keep output guardrails in the service layer, not in API route handlers.
 - Guardrails should reject malformed operations, invented fields, missing required arguments, invalid nested selections, and variable type mismatches.
 - Keep variable-usage validation so Variables JSON cannot drift away from the generated operation.
+- Keep guardrail errors clear enough to explain why model output was rejected.
 - When changing guardrail behavior, add focused tests in `tests/services/` or the closest matching mirrored folder.
 
 ## Inference Optimization
 
 - Keep inference optimization in the LLM or service layer, not in API route handlers.
+- Keep prompt construction and prompt compression explicit because they directly affect inference latency and output quality.
 - Preserve the local prompt/response cache unless the change explicitly replaces it.
 - Preserve schema-context caching unless the change explicitly replaces request retrieval behavior.
 - Prompt cache keys must include the full prompt plus model settings that affect output.

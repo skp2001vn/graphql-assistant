@@ -16,6 +16,8 @@ CACHE_METADATA_FILE = "index_metadata.json"
 class SchemaVectorStore:
     """Chroma-backed RAG store for GraphQL schema chunks.
 
+    This component owns schema chunking output, embeddings, vector-store
+    persistence, retrieval, schema-context formatting, and retrieval caching.
     The vector index is persisted in Chroma, while repeated request-to-context
     retrievals can be cached separately. This avoids recomputing the request
     embedding and Chroma query when the same prompt is repeated.
@@ -36,8 +38,9 @@ class SchemaVectorStore:
     def retrieve_schema_context(self, user_request: str) -> str:
         """Retrieve compact schema chunks relevant to a natural-language request.
 
-        When enabled, this method caches the final schema context by request,
-        schema fingerprint, embedding model, collection name, and compression
+        This is the RAG retrieval step used before prompt construction. When
+        enabled, this method caches the final schema context by request, schema
+        fingerprint, embedding model, collection name, and prompt compression
         setting.
         """
         cache_key = self._schema_context_cache_key(user_request)

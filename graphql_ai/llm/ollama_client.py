@@ -4,7 +4,7 @@ from graphql_ai.core.config import AppSettings, get_settings
 
 
 class OllamaClient:
-    """Small HTTP client for Ollama text generation."""
+    """Small HTTP client for local Ollama inference."""
 
     def __init__(self, settings: AppSettings | None = None) -> None:
         """Create an Ollama client from application settings."""
@@ -14,8 +14,9 @@ class OllamaClient:
         """Generate text with runtime options tuned for local inference.
 
         `keep_alive` keeps the model loaded between requests, `num_predict`
-        limits maximum output length, and `num_ctx` can constrain or expand the
-        context window when configured.
+        limits maximum output length, `num_ctx` can constrain or expand the
+        context window, and `think` controls model reasoning mode when the local
+        model supports it.
         """
         try:
             import requests
