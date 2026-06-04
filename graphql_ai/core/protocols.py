@@ -6,5 +6,5 @@ from typing import Protocol
 class SchemaContextProvider(Protocol):
     """Protocol for components that provide schema context to generation services."""
 
-    def retrieve_schema_context(self, user_request: str) -> str:
-        """Return schema context relevant to the user's request."""
+    def retrieve_schema_context(self, retrieval_request: str) -> str:
+        """Return schema context relevant to the retrieval request."""

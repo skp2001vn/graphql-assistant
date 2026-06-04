@@ -9,12 +9,12 @@ Use consistent AI vocabulary in code comments, docstrings, and docs:
 - RAG: schema-context retrieval before generation.
 - Embeddings: vector representations of GraphQL SDL chunks.
 - Vector store: Chroma persistence for schema embeddings.
-- Retrieval: selecting relevant schema chunks for a request.
-- Prompt construction: combining system prompt, retrieved context, and user request.
+- Retrieval: selecting relevant schema chunks for a requested root field.
+- Prompt construction: combining system prompt, retrieved context, and root-field request.
 - Prompt compression: compacting schema context before inference.
 - Inference: model generation through an LLM provider such as Ollama.
 - Inference cache: prompt/response reuse keyed by prompt and model settings.
-- Model pre-warm: loading the local model during application startup.
+- Model pre-warm: loading the local model during API startup.
 - Guardrails: validation and output checks before returning model output.
 - Agents, planning, model routing, and prompt evaluation: future extension areas.
 
@@ -95,6 +95,7 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 ## RAG And Schema Handling
 
 - `resources/schema.graphql` is the default schema and is expected to change rarely.
+- Direct sample generation should convert the root field into a focused prompt request, then use RAG, inference, and guardrails. In this project, root field means the schema Query or Mutation field name the user wants to generate, such as `country`.
 - RAG code should keep the flow clear: schema chunking, embeddings, vector-store indexing, retrieval, and schema-context formatting.
 - Preserve Chroma index caching; avoid rebuilding the index per request.
 - If schema indexing behavior changes, keep cache invalidation based on schema content and embedding model.
@@ -116,9 +117,12 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Preserve the local prompt/response cache unless the change explicitly replaces it.
 - Preserve schema-context caching unless the change explicitly replaces request retrieval behavior.
 - Prompt cache keys must include the full prompt plus model settings that affect output.
-- Schema-context cache keys must include the user request and schema fingerprint.
+- Prompt cache namespaces must include `PROMPT_CONTRACT_VERSION` so old generated responses can be bypassed after prompt or guardrail changes.
+- Prompt cache namespaces must include generation controls such as temperature, top-p, top-k, and seed.
+- Schema-context cache keys must include the root-field request and schema fingerprint.
+- Schema-context cache keys must include retrieval settings such as top-k.
 - Keep prompt compression enabled by default for local inference; include compression settings in cache keys.
-- Keep startup model pre-warming in the service/lifespan path, never in route handlers.
+- Keep model pre-warming in the AI service path, never in route handlers.
 - Store runtime cache artifacts under ignored paths such as `.cache/`.
 - Prefer small composable wrappers, such as cached LLM clients, over special cases inside business methods.
 

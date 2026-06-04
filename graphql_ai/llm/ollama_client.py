@@ -15,8 +15,9 @@ class OllamaClient:
 
         `keep_alive` keeps the model loaded between requests, `num_predict`
         limits maximum output length, `num_ctx` can constrain or expand the
-        context window, and `think` controls model reasoning mode when the local
-        model supports it.
+        context window, and low temperature/top-k/top-p sampling reduces
+        creative variance for schema-bound generation. `think` controls model
+        reasoning mode when the local model supports it.
         """
         try:
             import requests
@@ -25,7 +26,12 @@ class OllamaClient:
 
         options = {
             "num_predict": self.settings.ollama_num_predict,
+            "temperature": self.settings.ollama_temperature,
+            "top_p": self.settings.ollama_top_p,
+            "top_k": self.settings.ollama_top_k,
         }
+        if self.settings.ollama_seed is not None:
+            options["seed"] = self.settings.ollama_seed
         if self.settings.ollama_num_ctx is not None:
             options["num_ctx"] = self.settings.ollama_num_ctx
 

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 
 from graphql_ai.api.schemas import HealthResponse, SampleQueryResponse
-from graphql_ai.services.sample_query_service import SampleQueryService, build_default_sample_request
+from graphql_ai.services.sample_query_service import SampleQueryService
 
 
 router = APIRouter()
 
 
-def get_sample_service(request: Request) -> SampleQueryService:
-    """Return the application-scoped sample-query service."""
+def get_sample_query_service(request: Request) -> SampleQueryService:
+    """Return the application-scoped RAG and inference sample-query service."""
     return request.app.state.sample_service
 
 
@@ -20,22 +20,23 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@router.get("/sample/{target}", response_model=SampleQueryResponse)
+@router.get("/sample/{root_field}", response_model=SampleQueryResponse)
 def generate_sample_query(
     request: Request,
-    target: str = Path(min_length=1, description="GraphQL resource or type, for example: country"),
-    user_request: str | None = Query(
-        default=None,
-        alias="request",
-        description="Optional custom natural-language request.",
+    root_field: str = Path(
+        min_length=1,
+        description=(
+            "GraphQL Query or Mutation field name to generate a sample for, "
+            "for example: country"
+        ),
     ),
 ) -> SampleQueryResponse:
-    """Generate a sample GraphQL query for a schema target."""
-    sample_request = user_request or build_default_sample_request(target)
-    sample_service = get_sample_service(request)
-
+    """Generate a sample GraphQL operation for a schema Query or Mutation field name."""
     try:
-        sample = sample_service.generate(sample_request)
+        sample_service = get_sample_query_service(request)
+        sample = sample_service.generate(root_field)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

@@ -15,52 +15,40 @@ from graphql_ai.rag.vector_store import SchemaVectorStore
 
 
 GRAPHQL_SYSTEM_PROMPT = (
-    "You are a GraphQL expert. Use only schema fields. Include all fields for the requested "
-    "response type, expand nested objects/lists only when those fields exist on that type, "
-    "do not infer reverse relationship fields from root queries or other types, use variables, "
-    "put sample values only in the variables JSON and never hardcode them in arguments, "
-    "and return exactly two fenced code blocks: GraphQL operation, then variables JSON."
+    "You are a GraphQL expert. Generate one valid GraphQL operation from the provided schema. "
+    "Use only schema fields. Use the requested root field exactly. Use variables for required "
+    "arguments and put sample values only in the variables JSON. If the root field has no "
+    "arguments, do not add arguments and return empty variables JSON. Include all fields defined "
+    "on the selected response type. Expand nested object and list fields only when those fields "
+    "exist on that type. Never add fields from another response type or inferred reverse "
+    "relationships. "
+    "Return exactly two fenced code blocks: GraphQL operation, then variables JSON."
 )
 
-GRAPHQL_USER_PROMPT_TEMPLATE = "Schema:\n{schema_context}\n\nRequest:\n{user_request}"
+GRAPHQL_PROMPT_TEMPLATE = """Schema:
+{schema_context}
+
+Root field:
+{root_field}
+
+Operation name:
+{operation_name}
+"""
 
 VARIABLE_DEFINITION = re.compile(r"\$([_A-Za-z][_0-9A-Za-z]*)\s*:\s*([!\[\]_0-9A-Za-z]+)")
-
-
-def build_default_sample_request(target: str) -> str:
-    """Build the default natural-language request for a sample GraphQL target."""
-    normalized_target = target.strip().replace("-", " ")
-    if not normalized_target:
-        raise ValueError("Target must not be empty.")
-
-    target_name = normalized_target.title().replace(" ", "")
-    if normalized_target.lower() == "country":
-        return (
-            "Generate a sample GraphQL query named CountryQuery for a country by code. "
-            "Use a variable named code with type ID. "
-            "Include all available Country fields, including continent and languages. "
-            "Return Variables JSON with code set to US."
-        )
-
-    return (
-        f"Generate a sample GraphQL query named {target_name}Query for {normalized_target}. "
-        "For required arguments, define GraphQL variables in the operation signature and pass "
-        "those variables into the field call. "
-        "Include only fields that exist directly on the selected response type, then expand nested "
-        "object or list fields only when the schema defines them. "
-        "Return Variables JSON with realistic sample values, and do not hardcode those values in "
-        "the GraphQL operation."
-    )
 
 
 class SampleQueryService:
     """Business service for generating sample GraphQL queries.
 
     This service coordinates the application workflow for the sample-query use case:
-    it receives a natural-language request, runs RAG retrieval through the
-    configured schema-context provider, builds a prompt from retrieved context,
-    sends that prompt through the configured LLM client for inference, and parses
-    the model output into a GraphQL operation plus variables.
+    it receives a root field name from the API, converts it into a short
+    retrieval request, runs RAG retrieval through the configured schema-context
+    provider, builds a prompt from retrieved context, sends that prompt through
+    the configured LLM client for inference, and parses the model output into a
+    GraphQL operation plus variables. In this application, the API `root_field`
+    value is the schema Query or Mutation field name the user wants to generate,
+    such as `country`.
 
     The current default schema-context provider is RAG-backed: `SchemaVectorStore`
     chunks the local GraphQL SDL, creates embeddings, stores them in a Chroma
@@ -93,19 +81,37 @@ class SampleQueryService:
         )
         self.llm_client = llm_client or self._build_default_llm_client()
         self._generation_lock = Lock()
+        self._pre_warmed = False
 
-    def generate(self, user_request: str) -> GeneratedGraphQLSample:
-        """Generate a sample GraphQL operation and variables for a user request.
+    def generate(self, root_field: str) -> GeneratedGraphQLSample:
+        """Generate a sample GraphQL operation and variables for an API root field.
 
-        The request flow is retrieval, prompt construction, inference, parsing,
-        and guardrail validation. The prompt is compressed by default: retrieved
-        schema chunks are compacted and the instruction template is intentionally
-        short to reduce local model input tokens. After generation, GraphQL-core
+        In this app, `root_field` means the schema Query or Mutation field name
+        requested by the API, for example `country`. It is converted into a
+        short retrieval request, then the full application flow runs: RAG
+        retrieval, prompt construction, inference, parsing, and guardrail
+        validation. The prompt is compressed by default: retrieved schema chunks
+        are compacted and the instruction template is intentionally short to
+        reduce local model input tokens. After generation, GraphQL-core
         validation rejects operations that do not match the current schema.
         """
+        normalized_root_field = root_field.strip()
+        if not normalized_root_field:
+            raise ValueError("Root field must not be empty.")
+
+        operation_name = f"{_pascal_case(normalized_root_field)}Query"
+        retrieval_request = f"GraphQL Query or Mutation root field {normalized_root_field}"
+
         with self._generation_lock:
-            schema_context = self.schema_context_provider.retrieve_schema_context(user_request)
-            raw_response = self.llm_client.generate(self._build_prompt(schema_context, user_request))
+            self.pre_warm()
+            schema_context = self.schema_context_provider.retrieve_schema_context(retrieval_request)
+            raw_response = self.llm_client.generate(
+                self._build_prompt(
+                    schema_context=schema_context,
+                    root_field=normalized_root_field,
+                    operation_name=operation_name,
+                )
+            )
 
         sample = parse_generated_sample(raw_response)
         validation_errors = validate_operation_against_schema(sample.operation, self.settings.schema_file)
@@ -119,21 +125,28 @@ class SampleQueryService:
         return sample
 
     def pre_warm(self) -> None:
-        """Pre-load the local Ollama model during application startup.
+        """Pre-load the local Ollama model before custom inference.
 
         This inference optimization sends a tiny prompt through the configured
-        LLM client so Ollama loads the model before the first user request. The
-        setting trades a slightly slower startup for lower first-request latency.
+        LLM client so Ollama loads the model before the first custom generation.
+        The setting trades a slightly slower first AI request for lower latency
+        on following AI requests.
         """
+        if self._pre_warmed:
+            return
+
         if not self.settings.ollama_pre_warm_enabled:
+            self._pre_warmed = True
             return
 
         self.llm_client.generate(self.settings.ollama_pre_warm_prompt)
+        self._pre_warmed = True
 
-    def _build_prompt(self, schema_context: str, user_request: str) -> str:
-        user_prompt = GRAPHQL_USER_PROMPT_TEMPLATE.format(
+    def _build_prompt(self, schema_context: str, root_field: str, operation_name: str) -> str:
+        user_prompt = GRAPHQL_PROMPT_TEMPLATE.format(
             schema_context=schema_context,
-            user_request=user_request,
+            root_field=root_field,
+            operation_name=operation_name,
         )
         return f"{GRAPHQL_SYSTEM_PROMPT}\n\n{user_prompt}"
 
@@ -237,6 +250,10 @@ def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[s
             errors.append(f"variables JSON includes {variable_name}, but operation does not use ${variable_name}")
 
     return errors
+
+
+def _pascal_case(value: str) -> str:
+    return "".join(part.capitalize() for part in re.split(r"[_\-\s]+", value) if part)
 
 
 def _format_graphql_error(error: Exception) -> str:

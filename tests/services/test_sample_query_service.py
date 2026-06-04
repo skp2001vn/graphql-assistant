@@ -7,7 +7,6 @@ from pathlib import Path
 from graphql_ai.core.config import AppSettings
 from graphql_ai.services.sample_query_service import (
     SampleQueryService,
-    build_default_sample_request,
     parse_generated_sample,
     validate_operation_against_schema,
     validate_variable_usage,
@@ -46,13 +45,16 @@ type Language {
 
 
 class FakeLLMClient:
-    def __init__(self, response: str) -> None:
-        self.response = response
+    def __init__(self, response: str | list[str]) -> None:
+        self.responses = response if isinstance(response, list) else [response]
         self.prompts: list[str] = []
 
     def generate(self, prompt: str) -> str:
         self.prompts.append(prompt)
-        return self.response
+        if len(self.responses) == 1:
+            return self.responses[0]
+
+        return self.responses.pop(0)
 
 
 class FakeSchemaContextProvider:
@@ -60,8 +62,8 @@ class FakeSchemaContextProvider:
         self.context = context
         self.requests: list[str] = []
 
-    def retrieve_schema_context(self, user_request: str) -> str:
-        self.requests.append(user_request)
+    def retrieve_schema_context(self, retrieval_request: str) -> str:
+        self.requests.append(retrieval_request)
         return self.context
 
 
@@ -73,30 +75,12 @@ class SampleQueryServiceTest(unittest.TestCase):
         self.settings = AppSettings(
             schema_file=self.schema_file,
             inference_cache_enabled=False,
-            ollama_pre_warm_enabled=True,
+            ollama_pre_warm_enabled=False,
             ollama_pre_warm_prompt="warm",
         )
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
-
-    def test_build_default_sample_request_for_country_is_specific(self) -> None:
-        request = build_default_sample_request("country")
-
-        self.assertIn("CountryQuery", request)
-        self.assertIn("code", request)
-        self.assertIn("US", request)
-
-    def test_build_default_sample_request_for_other_target_requires_variables(self) -> None:
-        request = build_default_sample_request("continent")
-
-        self.assertIn("ContinentQuery", request)
-        self.assertIn("define GraphQL variables", request)
-        self.assertIn("do not hardcode", request)
-
-    def test_build_default_sample_request_rejects_blank_target(self) -> None:
-        with self.assertRaises(ValueError):
-            build_default_sample_request("   ")
 
     def test_parse_generated_sample_reads_operation_and_variables_blocks(self) -> None:
         raw_response = """
@@ -185,6 +169,21 @@ query CountryQuery($code: String!) {
         self.assertEqual(1, len(errors))
         self.assertIn("Variable '$code' of type 'String!' used in position expecting type 'ID!'", errors[0])
 
+    def test_validate_operation_rejects_unknown_root_field_arguments(self) -> None:
+        operation = """
+query CountriesQuery($countryCodes: [ID!]!) {
+  countries(code: $countryCodes) {
+    code
+    name
+  }
+}
+"""
+
+        errors = validate_operation_against_schema(operation, self.schema_file)
+
+        self.assertEqual(1, len(errors))
+        self.assertIn("Unknown argument 'code' on field 'Query.countries'", errors[0])
+
     def test_validate_operation_accepts_nested_fields_that_exist(self) -> None:
         operation = """
 query CountryQuery($code: ID!) {
@@ -214,7 +213,7 @@ query CountryQuery($code: ID!) {
 
         self.assertEqual(["variables JSON includes code, but operation does not use $code"], errors)
 
-    def test_generate_uses_rag_context_llm_and_validates_output(self) -> None:
+    def test_generate_uses_root_field_rag_context_llm_and_validates_output(self) -> None:
         llm_response = """
 ```graphql
 query ContinentQuery($code: ID!) {
@@ -237,11 +236,95 @@ query ContinentQuery($code: ID!) {
             schema_context_provider=schema_context_provider,
         )
 
-        sample = service.generate("Generate continent query")
+        sample = service.generate("continent")
 
         self.assertEqual({"code": "AF"}, sample.variables)
         self.assertIn("Schema:", llm_client.prompts[0])
-        self.assertEqual(["Generate continent query"], schema_context_provider.requests)
+        self.assertIn("Root field:\ncontinent", llm_client.prompts[0])
+        self.assertIn("Operation name:\nContinentQuery", llm_client.prompts[0])
+        self.assertEqual("GraphQL Query or Mutation root field continent", schema_context_provider.requests[0])
+
+    def test_generate_builds_root_field_request_and_uses_ai_path(self) -> None:
+        llm_response = """
+```graphql
+query CountriesQuery {
+  countries {
+    code
+    name
+    native
+    emoji
+    capital
+    currency
+    continent {
+      code
+      name
+    }
+    languages {
+      code
+      name
+    }
+  }
+}
+```
+
+```json
+{}
+```
+"""
+        llm_client = FakeLLMClient(llm_response)
+        schema_context_provider = FakeSchemaContextProvider()
+        service = SampleQueryService(
+            settings=self.settings,
+            llm_client=llm_client,
+            schema_context_provider=schema_context_provider,
+        )
+
+        sample = service.generate("countries")
+
+        self.assertIn("CountriesQuery", sample.operation)
+        self.assertEqual({}, sample.variables)
+        self.assertEqual(1, len(llm_client.prompts))
+        self.assertIn("Root field:\ncountries", llm_client.prompts[0])
+        self.assertIn("Operation name:\nCountriesQuery", llm_client.prompts[0])
+        self.assertEqual("GraphQL Query or Mutation root field countries", schema_context_provider.requests[0])
+
+    def test_generate_can_generate_argument_fields(self) -> None:
+        llm_response = """
+```graphql
+query ContinentQuery($code: ID!) {
+  continent(code: $code) {
+    code
+    name
+  }
+}
+```
+
+```json
+{"code": "AF"}
+```
+"""
+        llm_client = FakeLLMClient(llm_response)
+        schema_context_provider = FakeSchemaContextProvider()
+        service = SampleQueryService(
+            settings=self.settings,
+            llm_client=llm_client,
+            schema_context_provider=schema_context_provider,
+        )
+
+        sample = service.generate("continent")
+
+        self.assertEqual({"code": "AF"}, sample.variables)
+        self.assertEqual("GraphQL Query or Mutation root field continent", schema_context_provider.requests[0])
+
+    def test_generate_rejects_blank_root_field(self) -> None:
+        service = SampleQueryService(
+            settings=self.settings,
+            llm_client=FakeLLMClient("unused"),
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "Root field must not be empty"):
+            service.generate("   ")
 
     def test_generate_raises_when_model_output_does_not_match_schema(self) -> None:
         llm_response = """
@@ -267,12 +350,18 @@ query ContinentQuery($code: ID!) {
         )
 
         with self.assertRaisesRegex(RuntimeError, "Cannot query field 'countries' on type 'Continent'"):
-            service.generate("Generate continent query")
+            service.generate("continent")
 
     def test_pre_warm_sends_configured_prompt_when_enabled(self) -> None:
+        settings = AppSettings(
+            schema_file=self.schema_file,
+            inference_cache_enabled=False,
+            ollama_pre_warm_enabled=True,
+            ollama_pre_warm_prompt="warm",
+        )
         llm_client = FakeLLMClient("ok")
         service = SampleQueryService(
-            settings=self.settings,
+            settings=settings,
             llm_client=llm_client,
             schema_context_provider=FakeSchemaContextProvider(),
         )
@@ -280,6 +369,40 @@ query ContinentQuery($code: ID!) {
         service.pre_warm()
 
         self.assertEqual(["warm"], llm_client.prompts)
+
+    def test_generate_prewarms_once_before_generation(self) -> None:
+        settings = AppSettings(
+            schema_file=self.schema_file,
+            inference_cache_enabled=False,
+            ollama_pre_warm_enabled=True,
+            ollama_pre_warm_prompt="warm",
+        )
+        llm_response = """
+```graphql
+query ContinentQuery($code: ID!) {
+  continent(code: $code) {
+    code
+    name
+  }
+}
+```
+
+```json
+{"code": "AF"}
+```
+"""
+        llm_client = FakeLLMClient(["warm response", llm_response, llm_response])
+        service = SampleQueryService(
+            settings=settings,
+            llm_client=llm_client,
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        service.generate("continent")
+        service.generate("continent")
+
+        self.assertEqual(3, len(llm_client.prompts))
+        self.assertEqual("warm", llm_client.prompts[0])
 
     def test_pre_warm_is_skipped_when_disabled(self) -> None:
         settings = AppSettings(schema_file=self.schema_file, ollama_pre_warm_enabled=False)

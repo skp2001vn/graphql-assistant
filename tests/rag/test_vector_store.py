@@ -23,12 +23,14 @@ type Country {
 class FakeCollection:
     def __init__(self) -> None:
         self.query_calls = 0
+        self.n_results: list[int] = []
 
     def count(self) -> int:
-        return 1
+        return 10
 
     def query(self, query_embeddings: list[list[float]], n_results: int) -> dict[str, list[list[object]]]:
         self.query_calls += 1
+        self.n_results.append(n_results)
         return {
             "documents": [["type Country {\n  code: ID!\n}"]],
             "metadatas": [[{"kind": "type", "name": "Country"}]],
@@ -47,6 +49,7 @@ class VectorStoreTest(unittest.TestCase):
             schema_context_cache_path=root / "schema_context",
             embedding_model="test-embedding-model",
             prompt_compression_enabled=True,
+            schema_context_top_k=4,
         )
 
     def tearDown(self) -> None:
@@ -88,6 +91,7 @@ class VectorStoreTest(unittest.TestCase):
         self.assertEqual(first_context, second_context)
         self.assertEqual("type Country: type Country { code: ID! }", first_context)
         self.assertEqual(1, store.collection.query_calls)
+        self.assertEqual([4], store.collection.n_results)
 
     def test_format_schema_chunk_can_return_uncompressed_context(self) -> None:
         settings = AppSettings(

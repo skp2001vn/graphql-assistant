@@ -11,6 +11,7 @@ from graphql_ai.rag.schema_chunks import load_schema_chunks
 
 
 CACHE_METADATA_FILE = "index_metadata.json"
+SCHEMA_CONTEXT_CACHE_VERSION = "5"
 
 
 class SchemaVectorStore:
@@ -35,28 +36,31 @@ class SchemaVectorStore:
         self.collection = self._build_collection(rebuild=rebuild)
         self.schema_fingerprint = self._schema_fingerprint()
 
-    def retrieve_schema_context(self, user_request: str) -> str:
-        """Retrieve compact schema chunks relevant to a natural-language request.
+    def retrieve_schema_context(self, retrieval_request: str) -> str:
+        """Retrieve compact schema chunks relevant to a retrieval request.
 
         This is the RAG retrieval step used before prompt construction. When
         enabled, this method caches the final schema context by request, schema
         fingerprint, embedding model, collection name, and prompt compression
         setting.
         """
-        cache_key = self._schema_context_cache_key(user_request)
+        cache_key = self._schema_context_cache_key(retrieval_request)
         if self.settings.schema_context_cache_enabled:
             cached_context = self._read_schema_context_cache(cache_key)
             if cached_context is not None:
                 print("Using cached schema context.")
                 return cached_context
 
+        collection_count = self.collection.count()
+        n_results = min(self.settings.schema_context_top_k, collection_count)
+
         results = self.collection.query(
             query_embeddings=embed_texts(
-                [user_request],
+                [retrieval_request],
                 self.settings.embedding_model,
                 self.allow_downloads,
             ),
-            n_results=self.collection.count(),
+            n_results=n_results,
         )
 
         documents = results.get("documents", [[]])[0]
@@ -156,12 +160,14 @@ class SchemaVectorStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
 
-    def _schema_context_cache_key(self, user_request: str) -> str:
+    def _schema_context_cache_key(self, retrieval_request: str) -> str:
         key_material = json.dumps(
             {
-                "user_request": user_request,
+                "retrieval_request": retrieval_request,
                 "schema_fingerprint": self.schema_fingerprint,
                 "prompt_compression_enabled": self.settings.prompt_compression_enabled,
+                "schema_context_top_k": self.settings.schema_context_top_k,
+                "schema_context_cache_version": SCHEMA_CONTEXT_CACHE_VERSION,
             },
             sort_keys=True,
         )

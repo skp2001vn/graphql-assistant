@@ -15,11 +15,11 @@ from graphql_ai.main import create_app
 class FakeSampleService:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
-        self.requests: list[str] = []
+        self.root_fields: list[str] = []
         self.pre_warm_called = False
 
-    def generate(self, user_request: str) -> GeneratedGraphQLSample:
-        self.requests.append(user_request)
+    def generate(self, root_field: str) -> GeneratedGraphQLSample:
+        self.root_fields.append(root_field)
         if self.fail:
             raise RuntimeError("generation failed")
 
@@ -69,16 +69,7 @@ class ApiTest(unittest.TestCase):
             },
             response.json(),
         )
-        self.assertIn("CountryQuery", service.requests[0])
-
-    def test_sample_endpoint_uses_custom_request_when_provided(self) -> None:
-        service = FakeSampleService()
-        client = build_test_client(service)
-
-        response = client.get("/sample/continent", params={"request": "custom request"})
-
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(["custom request"], service.requests)
+        self.assertEqual(["country"], service.root_fields)
 
     def test_sample_endpoint_returns_503_when_generation_fails(self) -> None:
         client = build_test_client(FakeSampleService(fail=True))
@@ -88,16 +79,29 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(503, response.status_code)
         self.assertEqual({"detail": "generation failed"}, response.json())
 
-    def test_create_app_lifespan_constructs_and_prewarms_service(self) -> None:
+    def test_create_app_lifespan_constructs_and_prewarm_service(self) -> None:
         fake_service = FakeSampleService()
 
-        with patch("graphql_ai.main.SampleQueryService", return_value=fake_service):
+        with patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class:
             app = create_app()
             with TestClient(app) as client:
                 response = client.get("/health")
 
         self.assertEqual(200, response.status_code)
+        service_class.assert_called_once()
         self.assertTrue(fake_service.pre_warm_called)
+
+    def test_create_app_uses_startup_service_for_sample_request(self) -> None:
+        fake_service = FakeSampleService()
+
+        with patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class:
+            app = create_app()
+            with TestClient(app) as client:
+                response = client.get("/sample/country")
+
+        self.assertEqual(200, response.status_code)
+        service_class.assert_called_once()
+        self.assertEqual(["country"], fake_service.root_fields)
 
 
 if __name__ == "__main__":
