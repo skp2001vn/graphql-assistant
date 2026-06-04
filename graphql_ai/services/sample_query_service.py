@@ -16,8 +16,10 @@ from graphql_ai.rag.vector_store import SchemaVectorStore
 
 GRAPHQL_SYSTEM_PROMPT = (
     "You are a GraphQL expert. Use only schema fields. Include all fields for the requested "
-    "response type, expand nested objects/lists, use variables, and return exactly two fenced "
-    "code blocks: GraphQL operation, then variables JSON."
+    "response type, expand nested objects/lists only when those fields exist on that type, "
+    "do not infer reverse relationship fields from root queries or other types, use variables, "
+    "put sample values only in the variables JSON and never hardcode them in arguments, "
+    "and return exactly two fenced code blocks: GraphQL operation, then variables JSON."
 )
 
 GRAPHQL_USER_PROMPT_TEMPLATE = "Schema:\n{schema_context}\n\nRequest:\n{user_request}"
@@ -31,6 +33,7 @@ def build_default_sample_request(target: str) -> str:
     if not normalized_target:
         raise ValueError("Target must not be empty.")
 
+    target_name = normalized_target.title().replace(" ", "")
     if normalized_target.lower() == "country":
         return (
             "Generate a sample GraphQL query named CountryQuery for a country by code. "
@@ -39,7 +42,15 @@ def build_default_sample_request(target: str) -> str:
             "Return Variables JSON with code set to US."
         )
 
-    return f"Generate a sample query for {normalized_target}"
+    return (
+        f"Generate a sample GraphQL query named {target_name}Query for {normalized_target}. "
+        "For required arguments, define GraphQL variables in the operation signature and pass "
+        "those variables into the field call. "
+        "Include only fields that exist directly on the selected response type, then expand nested "
+        "object or list fields only when the schema defines them. "
+        "Return Variables JSON with realistic sample values, and do not hardcode those values in "
+        "the GraphQL operation."
+    )
 
 
 class SampleQueryService:
@@ -87,7 +98,16 @@ class SampleQueryService:
             schema_context = self.schema_context_provider.retrieve_schema_context(user_request)
             raw_response = self.llm_client.generate(self._build_prompt(schema_context, user_request))
 
-        return parse_generated_sample(raw_response)
+        sample = parse_generated_sample(raw_response)
+        validation_errors = validate_operation_against_schema(sample.operation, self.settings.schema_file)
+        validation_errors.extend(validate_variable_usage(sample.operation, sample.variables))
+        if validation_errors:
+            raise RuntimeError(
+                "Generated GraphQL operation was invalid for the current schema: "
+                + "; ".join(validation_errors)
+            )
+
+        return sample
 
     def pre_warm(self) -> None:
         """Pre-load the local Ollama model during application startup.
@@ -175,3 +195,126 @@ def _sample_value_for_graphql_type(variable_name: str, type_ref: str) -> Any:
         return "US" if "code" in variable_name.lower() else "example-id"
 
     return "example"
+
+
+def validate_operation_against_schema(operation: str, schema_file: Any) -> list[str]:
+    """Validate generated operation field selections against the local schema."""
+    schema_fields = _parse_schema_field_types(schema_file.read_text(encoding="utf-8"))
+    tokens = _tokenize_operation(operation)
+    if not tokens:
+        return ["operation was empty"]
+
+    try:
+        selection_start = tokens.index("{")
+    except ValueError:
+        return ["operation did not contain a selection set"]
+
+    errors: list[str] = []
+    _validate_selection_set(tokens, selection_start, "Query", schema_fields, errors)
+    return errors
+
+
+def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[str]:
+    """Validate that returned variables are actually used by the GraphQL operation."""
+    errors: list[str] = []
+    for variable_name in variables:
+        if variable_name.startswith("_"):
+            continue
+        if f"${variable_name}" not in operation:
+            errors.append(f"variables JSON includes {variable_name}, but operation does not use ${variable_name}")
+
+    return errors
+
+
+def _parse_schema_field_types(schema_text: str) -> dict[str, dict[str, str]]:
+    schema_fields: dict[str, dict[str, str]] = {}
+    for type_match in re.finditer(r"\btype\s+([_A-Za-z][_0-9A-Za-z]*)\s*\{(.*?)\}", schema_text, re.DOTALL):
+        type_name = type_match.group(1)
+        body = type_match.group(2)
+        fields: dict[str, str] = {}
+
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            field_match = re.match(
+                r"([_A-Za-z][_0-9A-Za-z]*)\s*(?:\([^)]*\))?\s*:\s*([!\[\]_0-9A-Za-z]+)",
+                line,
+            )
+            if field_match is not None:
+                fields[field_match.group(1)] = field_match.group(2)
+
+        schema_fields[type_name] = fields
+
+    return schema_fields
+
+
+def _tokenize_operation(operation: str) -> list[str]:
+    cleaned_operation = re.sub(r'"(?:\\.|[^"\\])*"', '""', operation)
+    cleaned_operation = re.sub(r"#.*", "", cleaned_operation)
+    return re.findall(r"[_A-Za-z][_0-9A-Za-z]*|\{|\}|\(|\)|:|,", cleaned_operation)
+
+
+def _validate_selection_set(
+    tokens: list[str],
+    start_index: int,
+    parent_type: str,
+    schema_fields: dict[str, dict[str, str]],
+    errors: list[str],
+) -> int:
+    index = start_index + 1
+    fields = schema_fields.get(parent_type, {})
+
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "}":
+            return index + 1
+        if token in {"{", "}", "(", ")", ":", ","}:
+            index += 1
+            continue
+
+        field_name = token
+        index += 1
+        if index < len(tokens) - 1 and tokens[index] == ":":
+            field_name = tokens[index + 1]
+            index += 2
+
+        if index < len(tokens) and tokens[index] == "(":
+            index = _skip_balanced_tokens(tokens, index, "(", ")")
+
+        field_type = fields.get(field_name)
+        if field_type is None:
+            errors.append(f"type {parent_type} has no field {field_name}")
+            if index < len(tokens) and tokens[index] == "{":
+                index = _skip_balanced_tokens(tokens, index, "{", "}")
+            continue
+
+        nested_type = _unwrap_graphql_type(field_type)
+        if index < len(tokens) and tokens[index] == "{":
+            if nested_type not in schema_fields:
+                errors.append(f"scalar field {parent_type}.{field_name} must not have nested fields")
+                index = _skip_balanced_tokens(tokens, index, "{", "}")
+            else:
+                index = _validate_selection_set(tokens, index, nested_type, schema_fields, errors)
+
+    return index
+
+
+def _skip_balanced_tokens(tokens: list[str], start_index: int, open_token: str, close_token: str) -> int:
+    depth = 0
+    index = start_index
+    while index < len(tokens):
+        if tokens[index] == open_token:
+            depth += 1
+        elif tokens[index] == close_token:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+
+    return index
+
+
+def _unwrap_graphql_type(type_ref: str) -> str:
+    return re.sub(r"[\[\]!]", "", type_ref)
