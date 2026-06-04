@@ -62,6 +62,14 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - If schema indexing behavior changes, keep cache invalidation based on schema content and embedding model.
 - Do not hard-code schema-specific fields outside a default example request unless the user explicitly asks for a schema-specific demo.
 
+## Inference Optimization
+
+- Keep inference optimization in the LLM or service layer, not in API route handlers.
+- Preserve the local prompt/response cache unless the change explicitly replaces it.
+- Cache keys must include the full prompt plus model settings that affect output.
+- Store runtime cache artifacts under ignored paths such as `.cache/`.
+- Prefer small composable wrappers, such as cached LLM clients, over special cases inside business methods.
+
 ## Verification
 
 Before finishing code changes, run the closest practical checks:

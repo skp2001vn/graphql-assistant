@@ -9,6 +9,7 @@ from graphql_ai.core.config import AppSettings, get_settings
 from graphql_ai.core.protocols import SchemaContextProvider
 from graphql_ai.domain import GeneratedGraphQLSample
 from graphql_ai.llm.base import LLMClient
+from graphql_ai.llm.cache import CachedLLMClient, PromptResponseCache
 from graphql_ai.llm.ollama_client import OllamaClient
 from graphql_ai.rag.vector_store import SchemaVectorStore
 
@@ -89,7 +90,7 @@ class SampleQueryService:
             rebuild=rebuild_index,
             allow_downloads=allow_downloads,
         )
-        self.llm_client = llm_client or OllamaClient(settings=self.settings)
+        self.llm_client = llm_client or self._build_default_llm_client()
         self._generation_lock = Lock()
 
     def generate(self, user_request: str) -> GeneratedGraphQLSample:
@@ -106,6 +107,17 @@ class SampleQueryService:
             user_request=user_request,
         )
         return f"{GRAPHQL_SYSTEM_PROMPT}\n\n{user_prompt}"
+
+    def _build_default_llm_client(self) -> LLMClient:
+        ollama_client = OllamaClient(settings=self.settings)
+        if not self.settings.inference_cache_enabled:
+            return ollama_client
+
+        return CachedLLMClient(
+            llm_client=ollama_client,
+            cache=PromptResponseCache(self.settings.inference_cache_path),
+            namespace=self.settings.inference_cache_namespace(),
+        )
 
 
 def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:

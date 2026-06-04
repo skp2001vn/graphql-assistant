@@ -31,6 +31,18 @@ class AppSettings:
     ollama_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300")))
     ollama_num_predict: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_PREDICT", "1200")))
     ollama_think: bool = field(default_factory=lambda: _read_bool_env("OLLAMA_THINK"))
+    inference_cache_enabled: bool = field(default_factory=lambda: _read_bool_env("INFERENCE_CACHE_ENABLED", True))
+    inference_cache_path: Path = field(default_factory=lambda: Path(os.getenv("INFERENCE_CACHE_PATH", ".cache/inference")))
+
+    def inference_cache_namespace(self) -> str:
+        """Return cache namespace fields that affect model output."""
+        return "|".join(
+            [
+                self.ollama_model,
+                str(self.ollama_num_predict),
+                str(self.ollama_think),
+            ]
+        )
 
 
 @lru_cache(maxsize=1)

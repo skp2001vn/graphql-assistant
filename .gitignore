@@ -1,5 +1,6 @@
 __pycache__/
 .venv/
+.cache/
 chroma_db/
 resources/models/
 .idea/

@@ -11,7 +11,8 @@ The current RAG flow:
 3. Embeds those chunks with a local sentence-transformers model.
 4. Stores the embeddings in a local Chroma index.
 5. Retrieves schema context for your request.
-6. Sends only that prompt context to local Ollama and prints the GraphQL operation plus Variables JSON.
+6. Checks the local inference cache for the final prompt.
+7. Sends only uncached prompt context to local Ollama and prints the GraphQL operation plus Variables JSON.
 
 Because `resources/schema.graphql` is rarely updated, the Chroma index is cached and reused after the first run.
 
@@ -124,6 +125,34 @@ curl "http://localhost:8080/sample/country?request=Generate%20a%20sample%20query
 
 The API currently uses the RAG technique. It builds or reuses the Chroma schema index once during application startup, then each endpoint call retrieves schema context and asks Ollama to generate the sample GraphQL call.
 
+## Inference Optimization
+
+The app includes two local caches:
+
+- Chroma schema index cache: avoids re-embedding `resources/schema.graphql` on every run.
+- Inference response cache: avoids calling Ollama again when the final prompt and model settings are identical.
+
+The inference cache is useful for local demos because generation is usually the slowest step. It is keyed by the full prompt plus model settings, so changing the request, retrieved schema context, model, `OLLAMA_NUM_PREDICT`, or `OLLAMA_THINK` produces a different cache entry.
+
+Defaults:
+
+```bash
+INFERENCE_CACHE_ENABLED=true
+INFERENCE_CACHE_PATH=.cache/inference
+```
+
+To disable response caching:
+
+```bash
+INFERENCE_CACHE_ENABLED=false uvicorn graphql_ai.main:app --host 0.0.0.0 --port 8080
+```
+
+To clear cached responses:
+
+```bash
+rm -rf .cache/inference
+```
+
 ## Project Structure
 
 The application is split into layers instead of keeping everything in one script:
@@ -141,6 +170,7 @@ graphql_ai/
     models.py          # Domain dataclasses shared by services and RAG
   llm/
     base.py            # LLM client protocol
+    cache.py           # Prompt/response cache wrapper
     ollama_client.py   # Ollama HTTP client
   rag/
     embeddings.py      # Local embedding model loading
@@ -176,6 +206,8 @@ OLLAMA_MODEL=qwen2.5-coder:3b
 OLLAMA_TIMEOUT_SECONDS=300
 OLLAMA_NUM_PREDICT=1200
 OLLAMA_THINK=false
+INFERENCE_CACHE_ENABLED=true
+INFERENCE_CACHE_PATH=.cache/inference
 ```
 
 `OLLAMA_TIMEOUT_SECONDS=300` is only the maximum time the request is allowed to run. It does not make Ollama slower by itself. The slow part is usually local model generation, especially when the prompt asks for a complete response shape.
