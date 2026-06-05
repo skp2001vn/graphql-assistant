@@ -84,7 +84,7 @@ class TroubleshootingAgentTest(unittest.TestCase):
     def test_validation_tool_reports_typo_suggestions(self) -> None:
         tool = GraphQLValidationTool(self.schema_file)
 
-        observation = tool.validate(
+        issues = tool.validate(
             """
 query CountryQuery($code: ID!) {
   county(code: $code) {
@@ -94,18 +94,18 @@ query CountryQuery($code: ID!) {
 """
         )
 
-        self.assertEqual(1, len(observation.issues))
-        self.assertIn("Cannot query field 'county' on type 'Query'", observation.issues[0])
-        self.assertIn("Did you mean 'country'", observation.issues[0])
+        self.assertEqual(1, len(issues))
+        self.assertIn("Cannot query field 'county' on type 'Query'", issues[0])
+        self.assertIn("Did you mean 'country'", issues[0])
 
     def test_validation_tool_reports_syntax_location(self) -> None:
         tool = GraphQLValidationTool(self.schema_file)
 
-        observation = tool.validate("query CountryQuery($code: ID!) { country(code: $code) { code ")
+        issues = tool.validate("query CountryQuery($code: ID!) { country(code: $code) { code ")
 
-        self.assertEqual(1, len(observation.issues))
-        self.assertIn("Syntax Error", observation.issues[0])
-        self.assertIn("Location: line", observation.issues[0])
+        self.assertEqual(1, len(issues))
+        self.assertIn("Syntax Error", issues[0])
+        self.assertIn("Location: line", issues[0])
 
     def test_validation_tool_caches_parsed_schema(self) -> None:
         schema_file = CountingSchemaFile(self.schema_file)
@@ -160,91 +160,10 @@ query CountryQuery($code: ID!) {
         self.assertEqual(["Replace `name1` with `name` in the selected fields."], detail)
         self.assertIn("name", suggestion)
 
-    def test_parse_troubleshooting_response_reads_unfenced_labeled_detail(self) -> None:
-        detail, suggestion = parse_troubleshooting_response(
-            """
-DETAIL:
-Replace the invalid selected field `name1` with `name`.
-
-SUGGESTION:
-```graphql
-query CountryQuery($code: ID!) {
-  country(code: $code) {
-    code
-    name
-  }
-}
-```
-"""
-        )
-
-        self.assertEqual(["Replace the invalid selected field `name1` with `name`."], detail)
-        self.assertIn("country(code: $code)", suggestion)
-
-    def test_parse_troubleshooting_response_normalizes_json_detail(self) -> None:
-        detail, suggestion = parse_troubleshooting_response(
-            r'''
-```json
-{
-  "errors": [
-    {
-      "message": "Cannot query field 'coe' on type 'Country'. Did you mean 'code'?",
-      "locations": [{"line": 3, "column": 5}]
-    },
-    {
-      "message": "Cannot query field 'nae' on type 'Country'. Did you mean 'name'?",
-      "locations": [{"line": 4, "column": 5}]
-    }
-  ]
-}
-```
-'''
-        )
-
-        self.assertEqual(
-            [
-                "Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5.",
-                "Cannot query field 'nae' on type 'Country'. Did you mean 'name'? Location: line 4, column 5.",
-            ],
-            detail,
-        )
-        self.assertEqual("", suggestion)
-
-    def test_parse_troubleshooting_response_does_not_duplicate_json_locations(self) -> None:
-        detail, suggestion = parse_troubleshooting_response(
-            r'''
-```json
-{
-  "errors": [
-    {
-      "message": "Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5.",
-      "locations": [{"line": 3, "column": 5}]
-    }
-  ]
-}
-```
-'''
-        )
-
-        self.assertEqual(
-            ["Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5."],
-            detail,
-        )
-        self.assertEqual("", suggestion)
-
-    def test_clean_model_detail_removes_raw_issues_and_graphql_code(self) -> None:
+    def test_clean_model_detail_removes_raw_issues(self) -> None:
         detail = [
             "1. **Cannot query field 'coe' on type 'Country'. Did you mean 'code'?**",
             "- Change `coe` to `code` in the submitted operation.",
-            "**Edit the GraphQL operation:**",
-            "**Edit the submitted GraphQL operation:**",
-            "```graphql",
-            "query CountryQuery($code: ID!) {",
-            "  country(code: $code) {",
-            "    code",
-            "  }",
-            "}",
-            "```",
         ]
         issues = ["Cannot query field 'coe' on type 'Country'. Did you mean 'code'? Location: line 3, column 5."]
 

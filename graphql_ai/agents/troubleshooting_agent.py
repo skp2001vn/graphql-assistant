@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass
 from threading import Lock
 from typing import Any
 
@@ -79,25 +77,17 @@ User GraphQL operation:
 {graphql_call}
 """
 
-
-@dataclass(frozen=True)
-class ValidationObservation:
-    """Tool observation from parsing and validating a GraphQL operation."""
-
-    issues: list[str]
+CODE_BLOCK_RE = re.compile(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", flags=re.DOTALL)
 
 
-class InputGuardrailTool:
-    """Tool that validates root-field and body input before agent planning continues."""
+def validate_troubleshooting_input(root_field: str, graphql_call: str) -> tuple[str, str]:
+    """Return normalized input or raise when the request is malformed."""
+    normalized_root_field = validate_root_field_request(root_field)
+    normalized_graphql_call = graphql_call.strip()
+    if not normalized_graphql_call:
+        raise InvalidRootFieldNameError("GraphQL call body must not be empty.")
 
-    def validate(self, root_field: str, graphql_call: str) -> tuple[str, str]:
-        """Return normalized input or raise when the request is malformed."""
-        normalized_root_field = validate_root_field_request(root_field)
-        normalized_graphql_call = graphql_call.strip()
-        if not normalized_graphql_call:
-            raise InvalidRootFieldNameError("GraphQL call body must not be empty.")
-
-        return normalized_root_field, normalized_graphql_call
+    return normalized_root_field, normalized_graphql_call
 
 
 class GraphQLValidationTool:
@@ -113,7 +103,7 @@ class GraphQLValidationTool:
         self.schema_file = schema_file
         self.schema = self._build_schema()
 
-    def validate(self, graphql_call: str) -> ValidationObservation:
+    def validate(self, graphql_call: str) -> list[str]:
         """Parse and validate a GraphQL operation, preserving line and column details."""
         try:
             from graphql import parse, validate
@@ -123,9 +113,9 @@ class GraphQLValidationTool:
         try:
             document = parse(graphql_call)
         except Exception as exc:
-            return ValidationObservation([format_graphql_issue(exc)])
+            return [format_graphql_issue(exc)]
 
-        return ValidationObservation([format_graphql_issue(error) for error in validate(self.schema, document)])
+        return [format_graphql_issue(error) for error in validate(self.schema, document)]
 
     def _build_schema(self) -> Any:
         try:
@@ -143,21 +133,15 @@ class SchemaRetrievalTool:
         """Create a retrieval tool with an in-memory cache per root field."""
         self.schema_context_provider = schema_context_provider
         self._cache: dict[str, str] = {}
-        self._cache_lock = Lock()
 
     def retrieve(self, root_field: str) -> str:
         """Retrieve schema context for the root field being troubleshot."""
-        with self._cache_lock:
-            cached_context = self._cache.get(root_field)
-        if cached_context is not None:
-            return cached_context
+        if root_field not in self._cache:
+            self._cache[root_field] = self.schema_context_provider.retrieve_schema_context(
+                f"Troubleshoot GraphQL Query or Mutation root field {root_field}"
+            )
 
-        schema_context = self.schema_context_provider.retrieve_schema_context(
-            f"Troubleshoot GraphQL Query or Mutation root field {root_field}"
-        )
-        with self._cache_lock:
-            self._cache[root_field] = schema_context
-        return schema_context
+        return self._cache[root_field]
 
 
 class TroubleshootingAgent:
@@ -184,16 +168,15 @@ class TroubleshootingAgent:
             settings=self.settings,
             allow_downloads=allow_downloads,
         )
-        self.input_tool = InputGuardrailTool()
         self.validation_tool = GraphQLValidationTool(self.settings.schema_file)
         self.retrieval_tool = SchemaRetrievalTool(self.schema_context_provider)
         self._inference_lock = Lock()
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
         """Run the agent plan and return issues, detail, and suggested operation."""
-        normalized_root_field, normalized_graphql_call = self.input_tool.validate(root_field, graphql_call)
-        validation_observation = self.validation_tool.validate(normalized_graphql_call)
-        if not validation_observation.issues:
+        normalized_root_field, normalized_graphql_call = validate_troubleshooting_input(root_field, graphql_call)
+        validation_issues = self.validation_tool.validate(normalized_graphql_call)
+        if not validation_issues:
             return TroubleshootingResult(
                 root_field=normalized_root_field,
                 status="valid",
@@ -211,24 +194,20 @@ class TroubleshootingAgent:
                     root_field=normalized_root_field,
                     graphql_call=normalized_graphql_call,
                     schema_context=schema_context,
-                    issues=validation_observation.issues,
+                    issues=validation_issues,
                 )
             )
 
         detail, suggested_operation = parse_troubleshooting_response(raw_response)
-        detail_text = "\n".join(detail)
-        if not suggested_operation and looks_like_graphql_operation(detail_text):
-            suggested_operation = detail_text
-            detail = []
-        detail = clean_model_detail(detail, validation_observation.issues)
+        detail = clean_model_detail(detail, validation_issues)
 
         corrected_issues = []
         if suggested_operation:
-            corrected_issues = self.validation_tool.validate(suggested_operation).issues
+            corrected_issues = self.validation_tool.validate(suggested_operation)
             if corrected_issues:
                 suggested_operation = ""
 
-        issues = validation_observation.issues
+        issues = validation_issues
         if corrected_issues:
             issues = issues + [f"Corrected operation was still invalid: {issue}" for issue in corrected_issues]
 
@@ -272,15 +251,15 @@ class TroubleshootingAgent:
 def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:
     """Parse agent inference into detail text and a suggested operation."""
     labeled_detail = _extract_labeled_code_block(raw_response, "DETAIL")
-    if labeled_detail is None:
-        labeled_detail = _extract_labeled_text_section(raw_response, "DETAIL", stop_label="SUGGESTION")
     labeled_suggestion = _extract_labeled_code_block(raw_response, "SUGGESTION")
     if labeled_detail is not None or labeled_suggestion is not None:
         return normalize_detail(labeled_detail or ""), (labeled_suggestion or "").strip()
 
-    code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
+    code_blocks = CODE_BLOCK_RE.findall(raw_response)
     if not code_blocks:
         return normalize_detail(raw_response), ""
+    if len(code_blocks) == 1 and looks_like_graphql_operation(code_blocks[0]):
+        return [], code_blocks[0].strip()
 
     detail = normalize_detail(code_blocks[0])
     suggested_operation = code_blocks[1].strip() if len(code_blocks) > 1 else ""
@@ -296,86 +275,32 @@ def _extract_labeled_code_block(raw_response: str, label: str) -> str | None:
     return match.group(1)
 
 
-def _extract_labeled_text_section(raw_response: str, label: str, stop_label: str) -> str | None:
-    pattern = rf"{label}\s*:\s*(.*?)(?=\n\s*{stop_label}\s*:|$)"
-    match = re.search(pattern, raw_response, flags=re.IGNORECASE | re.DOTALL)
-    if not match:
-        return None
-
-    section = match.group(1).strip()
-    return section or None
-
-
 def normalize_detail(raw_detail: str) -> list[str]:
     """Normalize model detail output into readable response lines."""
     detail = raw_detail.strip()
     if not detail:
         return []
 
-    parsed_detail = _parse_json_detail(detail)
-    if parsed_detail:
-        return parsed_detail
-
     return [line.strip() for line in detail.splitlines() if line.strip()]
 
 
 def clean_model_detail(detail: list[str], issues: list[str]) -> list[str]:
     """Keep only model-generated explanation lines for the response detail field."""
-    cleaned_detail = []
-    in_code_block = False
     normalized_issues = [_normalize_issue_line(issue) for issue in issues]
+    cleaned_detail = []
 
     for line in detail:
-        stripped_line = line.strip()
-        if stripped_line.startswith("```"):
-            in_code_block = not in_code_block
-            continue
-        if in_code_block:
-            continue
-        if looks_like_graphql_operation(stripped_line) or stripped_line in {"{", "}"}:
-            continue
-        normalized_heading = stripped_line.lower().strip("* ")
-        if normalized_heading.startswith(("edit the graphql operation", "edit the submitted graphql operation")):
+        cleaned_line = line.strip().lstrip("- ").strip()
+        if not cleaned_line:
             continue
 
-        normalized_line = _normalize_issue_line(stripped_line)
+        normalized_line = _normalize_issue_line(cleaned_line)
         if any(issue in normalized_line or normalized_line in issue for issue in normalized_issues):
             continue
 
-        cleaned_detail.append(stripped_line.lstrip("- ").strip())
+        cleaned_detail.append(cleaned_line)
 
     return cleaned_detail
-
-
-def _parse_json_detail(detail: str) -> list[str]:
-    try:
-        payload = json.loads(detail)
-    except json.JSONDecodeError:
-        return []
-
-    if isinstance(payload, dict) and isinstance(payload.get("errors"), list):
-        return [_format_json_error(error) for error in payload["errors"] if isinstance(error, dict)]
-    if isinstance(payload, dict) and isinstance(payload.get("message"), str):
-        return [_format_json_error(payload)]
-
-    return []
-
-
-def _format_json_error(error: dict[str, Any]) -> str:
-    message = str(error.get("message", "")).strip()
-    if "Location:" in message:
-        return message
-
-    locations = error.get("locations")
-    if isinstance(locations, list) and locations:
-        location_parts = []
-        for location in locations:
-            if isinstance(location, dict) and "line" in location and "column" in location:
-                location_parts.append(f"line {location['line']}, column {location['column']}")
-        if location_parts:
-            return f"{message} Location: {', '.join(location_parts)}."
-
-    return message
 
 
 def looks_like_graphql_operation(value: str) -> bool:
