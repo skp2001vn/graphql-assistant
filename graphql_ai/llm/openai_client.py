@@ -13,7 +13,14 @@ class OpenAIClient:
         self.settings = settings or get_settings()
 
     def generate(self, prompt: str) -> str:
-        """Generate text with OpenAI using the configured Responses API model."""
+        """Generate text with OpenAI using the configured Responses API model.
+
+        The application passes a single prompt string because prompt
+        construction already happened in the service or agent layer. This
+        adapter only owns provider-specific HTTP details: API key validation,
+        request payload shape, timeout, error translation, and output-text
+        extraction.
+        """
         if not self.settings.openai_api_key:
             raise RuntimeError("Missing OPENAI_API_KEY for LLM_PROVIDER=openai.")
 

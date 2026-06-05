@@ -8,7 +8,13 @@ from graphql_ai.llm.openai_client import OpenAIClient
 
 
 def build_llm_client(settings: AppSettings, namespace_prefix: str = "") -> LLMClient:
-    """Build the configured LLM provider client, wrapped with inference caching when enabled."""
+    """Build the configured LLM provider client for services and agents.
+
+    `LLM_PROVIDER` chooses the concrete adapter, currently `ollama` or
+    `openai`. When inference caching is enabled, the provider is wrapped in
+    `CachedLLMClient` with a namespace that includes model settings and an
+    optional workflow prefix, such as `troubleshooting`.
+    """
     provider = settings.llm_provider.lower()
     if provider == "ollama":
         llm_client: LLMClient = OllamaClient(settings=settings)

@@ -173,7 +173,14 @@ class SampleQueryService:
 
 
 def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:
-    """Parse fenced model output into a structured sample query result."""
+    """Parse model output into a GraphQL operation and Variables JSON.
+
+    The sample-generation prompt asks the model for two fenced code blocks:
+    the operation first, then variables JSON. This parser keeps the workflow
+    forgiving for educational use: if the variables block is missing, it infers
+    simple sample values from GraphQL variable definitions; if JSON parsing
+    fails, the raw variables text is preserved instead of silently discarded.
+    """
     code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
     operation = code_blocks[0].strip() if code_blocks else raw_response.strip()
     variables: dict[str, Any] = {}
@@ -251,7 +258,12 @@ def validate_operation_against_schema(operation: str, schema_file: Any) -> list[
 
 
 def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[str]:
-    """Guardrail that validates returned variables are used by the operation."""
+    """Validate that returned Variables JSON entries are used by the operation.
+
+    This small guardrail catches a common model-output drift: the operation
+    changes but the Variables JSON still includes old variable names. Private
+    parser fallback keys such as `_raw` are ignored.
+    """
     errors: list[str] = []
     for variable_name in variables:
         if variable_name.startswith("_"):
@@ -267,7 +279,7 @@ def validate_root_field_request(root_field: str) -> str:
 
     This input guardrail accepts only GraphQL field-name syntax. Rejecting
     malformed requests here avoids unnecessary embedding retrieval, prompt
-    construction, and Ollama inference.
+    construction, and LLM provider inference.
     """
     normalized_root_field = root_field.strip()
     if not normalized_root_field:

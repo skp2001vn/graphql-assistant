@@ -40,7 +40,13 @@ def generate_sample_query(
         ),
     ),
 ) -> SampleQueryResponse:
-    """Generate a sample GraphQL operation for a schema Query or Mutation field name."""
+    """Generate a sample GraphQL operation for a Query or Mutation field.
+
+    The route stays thin on purpose: it reads the `root_field` path value,
+    delegates RAG, prompt construction, inference, and guardrails to
+    `SampleQueryService`, then translates the domain result into the HTTP
+    response shape.
+    """
     try:
         sample_service = get_sample_query_service(request)
         sample = sample_service.generate(root_field)
@@ -66,12 +72,13 @@ async def troubleshoot_graphql_call(
         ),
     ),
 ) -> TroubleshootingResponse:
-    """Troubleshoot a submitted GraphQL call with an agent plan and local tools.
+    """Troubleshoot a submitted GraphQL call with an agent plan and tools.
 
     The endpoint accepts either a plain-text GraphQL operation or Postman's
     GraphQL JSON body format: `{"query": "...", "variables": {...}}`.
     Variables are accepted for client compatibility; troubleshooting uses the
-    query text.
+    query text. The route delegates validation, schema retrieval, inference,
+    and suggested-operation guardrails to `TroubleshootingAgent`.
     """
     try:
         graphql_call = await read_troubleshooting_graphql_call(request)

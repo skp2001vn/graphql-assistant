@@ -7,7 +7,7 @@ from graphql_ai.services.sample_query_service import SampleQueryService
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for sample-query generation."""
-    parser = argparse.ArgumentParser(description="Generate sample GraphQL calls with the local AI pipeline.")
+    parser = argparse.ArgumentParser(description="Generate sample GraphQL calls with the AI pipeline.")
     parser.add_argument(
         "root_field",
         nargs="?",

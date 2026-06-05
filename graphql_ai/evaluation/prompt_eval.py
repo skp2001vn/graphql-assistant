@@ -44,10 +44,14 @@ class PromptEvalResult:
 
 
 class SettingsWithSchemaFile(Protocol):
+    """Protocol for settings objects that expose the active GraphQL schema file."""
+
     schema_file: object
 
 
 class SampleGenerationService(Protocol):
+    """Protocol for services that generate sample GraphQL operations for evals."""
+
     settings: SettingsWithSchemaFile
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
@@ -55,6 +59,8 @@ class SampleGenerationService(Protocol):
 
 
 class TroubleshootingService(Protocol):
+    """Protocol for agents that troubleshoot GraphQL operations for evals."""
+
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
         """Troubleshoot a GraphQL operation."""
 
@@ -93,7 +99,14 @@ def run_sample_prompt_eval_cases(
     service: SampleGenerationService,
     cases: Iterable[SamplePromptEvalCase] = DEFAULT_SAMPLE_CASES,
 ) -> list[PromptEvalResult]:
-    """Run sample-generation prompt evaluation cases with existing guardrails."""
+    """Run sample-generation prompt evaluation cases.
+
+    Each case calls the real sample-generation workflow, then scores the output
+    with the same guardrails used by the API: GraphQL schema validation,
+    variable-usage validation, and a few simple expected-text checks. This keeps
+    prompt evaluation educational and deterministic without adding a separate
+    eval framework.
+    """
     results = []
     schema_file = service.settings.schema_file
 
@@ -113,7 +126,13 @@ def run_troubleshooting_prompt_eval_cases(
     schema_file: object,
     cases: Iterable[TroubleshootingPromptEvalCase] = DEFAULT_TROUBLESHOOTING_CASES,
 ) -> list[PromptEvalResult]:
-    """Run troubleshooting prompt evaluation cases with existing guardrails."""
+    """Run troubleshooting prompt evaluation cases.
+
+    Each case submits an intentionally invalid GraphQL operation to the
+    troubleshooting agent, then checks that the agent reports issues, produces
+    user-facing detail text, returns a suggestion, and that the suggestion
+    validates against the schema.
+    """
     results = []
 
     for case in cases:

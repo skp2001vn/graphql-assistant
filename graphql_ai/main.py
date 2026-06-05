@@ -12,7 +12,7 @@ from graphql_ai.services.sample_query_service import SampleQueryService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize services and pre-warm local inference for the API lifecycle."""
+    """Initialize services and optionally pre-warm local Ollama inference."""
     sample_service = SampleQueryService()
     sample_service.pre_warm()
     troubleshooting_agent = TroubleshootingAgent(

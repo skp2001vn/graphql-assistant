@@ -6,7 +6,11 @@ from typing import Any
 
 @dataclass(frozen=True)
 class SchemaChunk:
-    """A chunk of GraphQL SDL prepared for retrieval."""
+    """GraphQL SDL fragment prepared for embedding and retrieval.
+
+    RAG stores these chunks in the vector store, then retrieval returns the
+    most relevant chunks as schema context for prompt construction.
+    """
 
     id: str
     source: str
@@ -17,7 +21,12 @@ class SchemaChunk:
 
 @dataclass(frozen=True)
 class GeneratedGraphQLSample:
-    """Generated GraphQL operation, variables, and raw model text."""
+    """Generated sample operation returned by the sample-query workflow.
+
+    `operation` is the GraphQL text after parsing model output, `variables`
+    is the Variables JSON object paired with that operation, and
+    `raw_response` preserves the original model text for troubleshooting.
+    """
 
     operation: str
     variables: dict[str, Any]
@@ -26,7 +35,11 @@ class GeneratedGraphQLSample:
 
 @dataclass(frozen=True)
 class TroubleshootingResult:
-    """Troubleshooting result with validator issues and model-generated detail."""
+    """Result returned by the troubleshooting agent workflow.
+
+    The result keeps deterministic GraphQL validation issues separate from
+    model-generated detail text and the validated suggested operation.
+    """
 
     root_field: str
     status: str

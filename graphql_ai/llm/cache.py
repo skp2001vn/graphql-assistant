@@ -8,14 +8,22 @@ from graphql_ai.llm.base import LLMClient
 
 
 class PromptResponseCache:
-    """File-backed inference cache for completed LLM prompt responses."""
+    """File-backed inference cache for completed LLM prompt responses.
+
+    Services cache final prompt/response pairs so repeated educational demos do
+    not call the model provider again when the prompt and model settings match.
+    """
 
     def __init__(self, cache_dir: Path) -> None:
         """Create a cache rooted at the provided directory."""
         self.cache_dir = cache_dir
 
     def get(self, key: str) -> str | None:
-        """Return a cached response for a key, if one exists."""
+        """Return a cached response for a key, if one exists.
+
+        Invalid or partially written cache files are treated as cache misses so
+        a bad local artifact does not break inference.
+        """
         path = self._cache_path(key)
         if not path.exists():
             return None
@@ -29,7 +37,7 @@ class PromptResponseCache:
         return response if isinstance(response, str) else None
 
     def set(self, key: str, response: str) -> None:
-        """Store an LLM response for a key."""
+        """Store an LLM response under a deterministic cache key."""
         path = self._cache_path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -49,7 +57,12 @@ class PromptResponseCache:
 
 
 class CachedLLMClient:
-    """LLM client wrapper that adds inference caching by prompt and model namespace."""
+    """LLM client wrapper that adds inference caching by prompt and namespace.
+
+    The wrapper keeps caching separate from provider clients. The namespace
+    captures model settings and workflow context, while the prompt text captures
+    the exact request sent to inference.
+    """
 
     def __init__(self, llm_client: LLMClient, cache: PromptResponseCache, namespace: str) -> None:
         """Create a cached LLM client around another LLM client."""
@@ -58,7 +71,7 @@ class CachedLLMClient:
         self.namespace = namespace
 
     def generate(self, prompt: str) -> str:
-        """Run inference, using a cached response when the prompt was seen before."""
+        """Generate text, reusing a cached response for identical prompt input."""
         cache_key = self._cache_key(prompt)
         cached_response = self.cache.get(cache_key)
         if cached_response is not None:
