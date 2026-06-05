@@ -8,7 +8,17 @@ _embedding_model: tuple[str, Any] | None = None
 
 
 def get_embedding_model(model_name_or_path: str, allow_downloads: bool = False) -> Any:
-    """Load and cache the sentence-transformers embedding model."""
+    """Load and cache the sentence-transformers embedding model.
+
+    RAG starts by turning schema chunks and retrieval requests into embedding
+    vectors. Loading the embedding model is relatively expensive, so this module
+    keeps one model instance in memory and reuses it until the configured model
+    name or local path changes.
+
+    By default, this educational app expects the embedding model to already
+    exist under `resources/models/`. `allow_downloads=True` is reserved for
+    setup or live integration paths that are allowed to reach the network.
+    """
     global _embedding_model
 
     if _embedding_model is None or _embedding_model[0] != model_name_or_path:
@@ -43,7 +53,13 @@ def embed_texts(
     model_name_or_path: str,
     allow_downloads: bool = False,
 ) -> list[list[float]]:
-    """Embed text values as normalized vectors for Chroma search."""
+    """Convert text values into normalized embedding vectors for retrieval.
+
+    Chroma compares the request embedding with stored schema-chunk embeddings.
+    Normalizing embeddings makes similarity search more stable across chunks of
+    different lengths and keeps the vector-store behavior deterministic enough
+    for local demos.
+    """
     embeddings = get_embedding_model(model_name_or_path, allow_downloads).encode(
         texts,
         normalize_embeddings=True,

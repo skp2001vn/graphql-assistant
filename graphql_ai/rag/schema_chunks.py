@@ -16,7 +16,12 @@ DEFINITION_START = re.compile(
 
 
 def read_schema_file(schema_file: Path) -> tuple[str, str]:
-    """Read a local GraphQL SDL file and return its source path and text."""
+    """Read a local GraphQL SDL file and return its source path and text.
+
+    This is the first step of schema indexing. It keeps file validation close
+    to the RAG layer so callers get clear errors when the configured schema is
+    missing or empty.
+    """
     if not schema_file.exists():
         raise FileNotFoundError(f"Local GraphQL schema file not found: {schema_file}")
 
@@ -28,7 +33,12 @@ def read_schema_file(schema_file: Path) -> tuple[str, str]:
 
 
 def load_schema_chunks(schema_file: Path) -> list[SchemaChunk]:
-    """Load and chunk a local GraphQL schema file."""
+    """Load a GraphQL schema file and split it into retrieval chunks.
+
+    Services do not work directly with the full SDL. The RAG layer turns the
+    schema into smaller chunks that can be embedded, stored in Chroma, and
+    retrieved later based on the user's requested root field.
+    """
     source, schema_text = read_schema_file(schema_file)
     chunks = chunk_graphql_schema(schema_text, source)
 
@@ -39,7 +49,14 @@ def load_schema_chunks(schema_file: Path) -> list[SchemaChunk]:
 
 
 def chunk_graphql_schema(schema_text: str, source: str) -> list[SchemaChunk]:
-    """Split GraphQL SDL into retrievable schema chunks."""
+    """Split GraphQL SDL into retrievable definition-sized chunks.
+
+    Each GraphQL definition, such as a `type`, `input`, `enum`, or `directive`,
+    becomes one `SchemaChunk`. Definition-level chunking keeps related fields
+    together while avoiding prompts that contain the entire schema. If the SDL
+    does not match the expected definition pattern, the whole file is kept as a
+    fallback chunk so retrieval still has usable context.
+    """
     matches = list(DEFINITION_START.finditer(schema_text))
 
     if not matches:
@@ -77,13 +94,23 @@ def chunk_graphql_schema(schema_text: str, source: str) -> list[SchemaChunk]:
 
 
 def make_chunk_id(source: str, kind: str, name: str, text: str) -> str:
-    """Create a stable short ID for a schema chunk."""
+    """Create a stable short ID for a schema chunk.
+
+    The ID is based on the source path, definition kind, definition name, and
+    text content. When the schema changes, changed chunks naturally get new IDs,
+    which helps Chroma indexing and cache invalidation stay predictable.
+    """
     digest = hashlib.sha1(f"{source}:{kind}:{name}:{text}".encode("utf-8")).hexdigest()
     return digest[:16]
 
 
 def dedupe_chunks(chunks: list[SchemaChunk]) -> list[SchemaChunk]:
-    """Remove duplicate chunks while preserving order."""
+    """Remove duplicate chunks while preserving schema order.
+
+    Preserving order makes indexed chunks easier to inspect during demos, while
+    deduplication avoids storing the same definition twice if schema input
+    contains repeated text.
+    """
     unique_chunks = []
     seen_ids = set()
 
