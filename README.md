@@ -212,7 +212,7 @@ When the submitted GraphQL operation is valid, troubleshooting returns empty iss
 Troubleshooting response fields come from different parts of the agent workflow:
 
 - `issues`: GraphQL-core validation output.
-- `detail`: Ollama explanation for invalid calls. If the first model response omits detail, the agent sends a detail-only prompt to Ollama.
+- `detail`: Ollama explanation for invalid calls, generated in the same inference call as the suggested operation.
 - `suggestion`: Ollama suggested operation, validated again with GraphQL-core before returning.
 
 ## Tests
@@ -276,7 +276,7 @@ OLLAMA_SEED=42
 OLLAMA_PRE_WARM_ENABLED=true
 OLLAMA_PRE_WARM_PROMPT=OK
 PROMPT_COMPRESSION_ENABLED=true
-PROMPT_CONTRACT_VERSION=25
+PROMPT_CONTRACT_VERSION=29
 SCHEMA_CONTEXT_CACHE_ENABLED=true
 SCHEMA_CONTEXT_CACHE_PATH=.cache/schema_context
 SCHEMA_CONTEXT_TOP_K=5
@@ -380,7 +380,7 @@ OLLAMA_PRE_WARM_ENABLED=true
 OLLAMA_PRE_WARM_PROMPT=OK
 OLLAMA_THINK=false
 PROMPT_COMPRESSION_ENABLED=true
-PROMPT_CONTRACT_VERSION=25
+PROMPT_CONTRACT_VERSION=29
 SCHEMA_CONTEXT_CACHE_ENABLED=true
 SCHEMA_CONTEXT_CACHE_PATH=.cache/schema_context
 INFERENCE_CACHE_ENABLED=true

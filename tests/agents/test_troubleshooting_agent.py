@@ -137,6 +137,50 @@ query CountryQuery($code: ID!) {
         self.assertIn("country", detail[0])
         self.assertIn("country(code: $code)", suggestion)
 
+    def test_parse_troubleshooting_response_prefers_labeled_blocks(self) -> None:
+        detail, suggestion = parse_troubleshooting_response(
+            """
+DETAIL:
+```text
+Replace `name1` with `name` in the selected fields.
+```
+
+SUGGESTION:
+```graphql
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+```
+"""
+        )
+
+        self.assertEqual(["Replace `name1` with `name` in the selected fields."], detail)
+        self.assertIn("name", suggestion)
+
+    def test_parse_troubleshooting_response_reads_unfenced_labeled_detail(self) -> None:
+        detail, suggestion = parse_troubleshooting_response(
+            """
+DETAIL:
+Replace the invalid selected field `name1` with `name`.
+
+SUGGESTION:
+```graphql
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+```
+"""
+        )
+
+        self.assertEqual(["Replace the invalid selected field `name1` with `name`."], detail)
+        self.assertIn("country(code: $code)", suggestion)
+
     def test_parse_troubleshooting_response_normalizes_json_detail(self) -> None:
         detail, suggestion = parse_troubleshooting_response(
             r'''
@@ -254,6 +298,14 @@ query CountyQuery($code: ID!) {
         )
         self.assertIn("Plan:", llm_client.prompts[0])
         self.assertIn("Validation issues:", llm_client.prompts[0])
+        self.assertIn("Detail block rules:", llm_client.prompts[0])
+        self.assertIn("Do not include headings, bullets, numbering, JSON, or GraphQL code", llm_client.prompts[0])
+        self.assertIn("DETAIL:", llm_client.prompts[0])
+        self.assertIn("SUGGESTION:", llm_client.prompts[0])
+        self.assertIn("Do not copy placeholder text", llm_client.prompts[0])
+        self.assertIn("For syntax errors, fix only GraphQL structure", llm_client.prompts[0])
+        self.assertIn("Preserve submitted fields that are not named in a validation issue", llm_client.prompts[0])
+        self.assertIn("Do not replace a nested object field with a root Query field", llm_client.prompts[0])
 
     def test_agent_caches_retrieved_schema_context_per_root_field(self) -> None:
         llm_response = """
@@ -357,8 +409,8 @@ query CountryQuery {
         self.assertEqual("", result.suggestion)
         self.assertTrue(any("Corrected operation was still invalid" in issue for issue in result.issues))
 
-    def test_agent_gets_detail_from_ollama_when_first_response_returns_only_operation(self) -> None:
-        first_response = """
+    def test_agent_does_not_retry_when_first_response_returns_only_operation(self) -> None:
+        llm_response = """
 ```graphql
 query CountryQuery($code: ID!) {
   country(code: $code) {
@@ -368,10 +420,9 @@ query CountryQuery($code: ID!) {
 }
 ```
 """
-        second_response = "The root field `county` is not part of the schema. Use `country` for this lookup."
         agent = TroubleshootingAgent(
             settings=self.settings,
-            llm_client=FakeLLMClient([first_response, second_response]),
+            llm_client=FakeLLMClient(llm_response),
             schema_context_provider=FakeSchemaContextProvider(),
         )
 
@@ -380,17 +431,13 @@ query CountryQuery($code: ID!) {
             "query CountyQuery($code: ID!) { county(code: $code) { code } }",
         )
 
-        self.assertEqual(
-            ["The root field `county` is not part of the schema. Use `country` for this lookup."],
-            result.detail,
-        )
+        self.assertEqual([], result.detail)
         self.assertIn("country(code: $code)", result.suggestion)
-        self.assertEqual(2, len(agent.llm_client.prompts))
-        self.assertIn("The schema is fixed", agent.llm_client.prompts[1])
+        self.assertEqual(1, len(agent.llm_client.prompts))
 
-    def test_agent_retries_detail_when_model_repeats_validation_issue(self) -> None:
+    def test_agent_does_not_retry_when_model_repeats_validation_issue(self) -> None:
         raw_issue = "Cannot query field 'county' on type 'Query'. Did you mean 'country'?"
-        first_response = f"""
+        llm_response = f"""
 ```text
 - {raw_issue}
 ```
@@ -404,10 +451,9 @@ query CountryQuery($code: ID!) {{
 }}
 ```
 """
-        second_response = "Use `country` as the root field because `county` is not defined in the schema."
         agent = TroubleshootingAgent(
             settings=self.settings,
-            llm_client=FakeLLMClient([first_response, second_response]),
+            llm_client=FakeLLMClient(llm_response),
             schema_context_provider=FakeSchemaContextProvider(),
         )
 
@@ -416,11 +462,9 @@ query CountryQuery($code: ID!) {{
             "query CountyQuery($code: ID!) { county(code: $code) { code } }",
         )
 
-        self.assertEqual(
-            ["Use `country` as the root field because `county` is not defined in the schema."],
-            result.detail,
-        )
-        self.assertEqual(2, len(agent.llm_client.prompts))
+        self.assertEqual([], result.detail)
+        self.assertIn("country(code: $code)", result.suggestion)
+        self.assertEqual(1, len(agent.llm_client.prompts))
 
 
 if __name__ == "__main__":

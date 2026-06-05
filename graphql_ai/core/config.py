@@ -51,7 +51,7 @@ class AppSettings:
     prompt_compression_enabled: bool = field(
         default_factory=lambda: _read_bool_env("PROMPT_COMPRESSION_ENABLED", True)
     )
-    prompt_contract_version: str = field(default_factory=lambda: os.getenv("PROMPT_CONTRACT_VERSION", "25"))
+    prompt_contract_version: str = field(default_factory=lambda: os.getenv("PROMPT_CONTRACT_VERSION", "29"))
     ollama_pre_warm_enabled: bool = field(default_factory=lambda: _read_bool_env("OLLAMA_PRE_WARM_ENABLED", True))
     ollama_pre_warm_prompt: str = field(default_factory=lambda: os.getenv("OLLAMA_PRE_WARM_PROMPT", "OK"))
 

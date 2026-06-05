@@ -29,40 +29,42 @@ TROUBLESHOOTING_SYSTEM_PROMPT = (
     "with a user's GraphQL operation and suggest a corrected operation. Use the tool "
     "observations and schema context. Tool observations are authoritative: do not add "
     "issues that are not listed in the validation issues. Do not invent schema fields. "
-    "Return exactly two fenced code blocks: first plain-language detail text, then a GraphQL "
-    "suggested operation. The detail text must explain the likely cause and fix in natural "
-    "language. Do not return JSON in the detail block and do not repeat the validation issue "
-    "verbatim. A 'Cannot query field' validation issue refers to a selected response field, "
-    "not an argument."
+    "Return exactly two labeled fenced code blocks: DETAIL and SUGGESTION. Both blocks "
+    "are required. DETAIL must contain only 1 to 3 short explanation lines, no JSON, "
+    "no Markdown headings, no bullets, and no GraphQL code. SUGGESTION must contain the "
+    "full corrected GraphQL operation, not only the changed field. Do not repeat validation "
+    "issues verbatim. A 'Cannot query field' validation issue refers to a selected response "
+    "field, not an argument. For syntax errors, preserve submitted field names and fix only "
+    "GraphQL structure such as braces, parentheses, colons, commas, and variable syntax. "
+    "Rename a selected field only when a validation issue explicitly says that field is invalid."
 )
 
-TROUBLESHOOTING_PROMPT_TEMPLATE = """Plan:
+TROUBLESHOOTING_PROMPT_TEMPLATE = """Output format. Replace the placeholder content with the actual correction. Do not copy placeholder text.
+DETAIL:
+```text
+One to three short lines explaining the actual correction.
+```
+
+SUGGESTION:
+```graphql
+Full corrected GraphQL operation.
+```
+
+Detail block rules:
+- Return only natural-language explanation lines.
+- Do not include headings, bullets, numbering, JSON, or GraphQL code in the detail block.
+- If an issue says "Did you mean ...", use that as the fix.
+- Explain changes to the submitted operation, not changes to the schema.
+- Return nothing outside DETAIL and SUGGESTION.
+
+Suggestion rules:
+- Preserve submitted fields that are not named in a validation issue.
+- For syntax errors, fix only GraphQL structure such as braces, parentheses, colons, commas, and variable syntax.
+- Rename a selected field only when a validation issue explicitly says that field is invalid.
+- Do not replace a nested object field with a root Query field just because the names are similar.
+
+Plan:
 {plan}
-
-Root field:
-{root_field}
-
-Schema context:
-{schema_context}
-
-Validation issues:
-{issues}
-
-User GraphQL operation:
-{graphql_call}
-"""
-
-TROUBLESHOOTING_DETAIL_PROMPT_TEMPLATE = """Explain these GraphQL validation issues in plain language.
-
-Rules:
-- Return only 1 to 3 short explanation lines.
-- Do not return JSON.
-- Do not return GraphQL code.
-- Do not repeat the validation issue verbatim.
-- The schema is fixed. Do not suggest changing or adding fields to the schema.
-- Explain how to edit the submitted GraphQL operation.
-- When a validation issue says "Did you mean ...", use that as the fix.
-- A "Cannot query field" issue refers to a selected response field, not an argument.
 
 Root field:
 {root_field}
@@ -219,21 +221,6 @@ class TroubleshootingAgent:
             suggested_operation = detail_text
             detail = []
         detail = clean_model_detail(detail, validation_observation.issues)
-        if should_generate_detail(detail, validation_observation.issues):
-            with self._inference_lock:
-                detail = clean_model_detail(
-                    normalize_detail(
-                        self.llm_client.generate(
-                            self._build_detail_prompt(
-                                root_field=normalized_root_field,
-                                graphql_call=normalized_graphql_call,
-                                schema_context=schema_context,
-                                issues=validation_observation.issues,
-                            )
-                        )
-                    ),
-                    validation_observation.issues,
-                )
 
         corrected_issues = []
         if suggested_operation:
@@ -270,20 +257,6 @@ class TroubleshootingAgent:
         )
         return f"{TROUBLESHOOTING_SYSTEM_PROMPT}\n\n{user_prompt}"
 
-    def _build_detail_prompt(
-        self,
-        root_field: str,
-        graphql_call: str,
-        schema_context: str,
-        issues: list[str],
-    ) -> str:
-        return TROUBLESHOOTING_DETAIL_PROMPT_TEMPLATE.format(
-            root_field=root_field,
-            schema_context=schema_context,
-            issues="\n".join(f"- {issue}" for issue in issues),
-            graphql_call=graphql_call,
-        )
-
     def _build_default_llm_client(self) -> LLMClient:
         ollama_client = OllamaClient(settings=self.settings)
         if not self.settings.inference_cache_enabled:
@@ -298,6 +271,13 @@ class TroubleshootingAgent:
 
 def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:
     """Parse agent inference into detail text and a suggested operation."""
+    labeled_detail = _extract_labeled_code_block(raw_response, "DETAIL")
+    if labeled_detail is None:
+        labeled_detail = _extract_labeled_text_section(raw_response, "DETAIL", stop_label="SUGGESTION")
+    labeled_suggestion = _extract_labeled_code_block(raw_response, "SUGGESTION")
+    if labeled_detail is not None or labeled_suggestion is not None:
+        return normalize_detail(labeled_detail or ""), (labeled_suggestion or "").strip()
+
     code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
     if not code_blocks:
         return normalize_detail(raw_response), ""
@@ -305,6 +285,25 @@ def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:
     detail = normalize_detail(code_blocks[0])
     suggested_operation = code_blocks[1].strip() if len(code_blocks) > 1 else ""
     return detail, suggested_operation
+
+
+def _extract_labeled_code_block(raw_response: str, label: str) -> str | None:
+    pattern = rf"{label}\s*:\s*```(?:[A-Za-z0-9_-]+)?\s*(.*?)```"
+    match = re.search(pattern, raw_response, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+
+    return match.group(1)
+
+
+def _extract_labeled_text_section(raw_response: str, label: str, stop_label: str) -> str | None:
+    pattern = rf"{label}\s*:\s*(.*?)(?=\n\s*{stop_label}\s*:|$)"
+    match = re.search(pattern, raw_response, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+
+    section = match.group(1).strip()
+    return section or None
 
 
 def normalize_detail(raw_detail: str) -> list[str]:
@@ -383,19 +382,6 @@ def looks_like_graphql_operation(value: str) -> bool:
     """Return whether text appears to be a GraphQL operation."""
     stripped_value = value.lstrip()
     return stripped_value.startswith(("query ", "mutation ", "subscription ", "{"))
-
-
-def should_generate_detail(detail: list[str], issues: list[str]) -> bool:
-    """Return whether a second detail-only inference call is needed."""
-    normalized_detail = [_normalize_issue_line(line) for line in detail]
-    normalized_issues = [_normalize_issue_line(issue) for issue in issues]
-    repeats_validator_issue = any(
-        issue in detail_line or detail_line in issue
-        for issue in normalized_issues
-        for detail_line in normalized_detail
-    )
-    contains_graphql_code = any("```" in line or looks_like_graphql_operation(line) for line in detail)
-    return bool(issues) and (not detail or repeats_validator_issue or contains_graphql_code)
 
 
 def _normalize_issue_line(value: str) -> str:
