@@ -2,7 +2,7 @@
 
 This is a small app for generating sample GraphQL calls and troubleshooting GraphQL calls from a local schema.
 
-Sample generation uses RAG with local Ollama inference. For `/sample/{root_field}`, the root field is converted to a focused prompt request, then retrieval provides schema context before prompt construction, inference, and guardrails. Troubleshooting uses a small tool-using agent. For `/troubleshoot/{root_field}`, the agent goal is to explain a submitted GraphQL call, run a plan with local tools, and suggest a corrected operation. In this app, `root_field` is the GraphQL Query or Mutation field name the user wants to generate or troubleshoot, such as `country`. The structure is intentionally open for adding other GraphQL AI capabilities later, such as planning workflows, inference optimization, model routing, and prompt evaluation.
+Sample generation uses RAG with Ollama or OpenAI inference. For `/sample/{root_field}`, the root field is converted to a focused prompt request, then retrieval provides schema context before prompt construction, inference, and guardrails. Troubleshooting uses a small tool-using agent. For `/troubleshoot/{root_field}`, the agent goal is to explain a submitted GraphQL call, run a plan with local tools, and suggest a corrected operation. In this app, `root_field` is the GraphQL Query or Mutation field name the user wants to generate or troubleshoot, such as `country`. The structure is intentionally open for adding other GraphQL AI capabilities later, such as planning workflows, inference optimization, model routing, and prompt evaluation.
 
 ## AI Concepts Covered
 
@@ -14,7 +14,7 @@ This project highlights common AI application patterns:
 - **Retrieval**: selects schema chunks relevant to the requested root field.
 - **Prompt construction**: combines system instructions, retrieved context, and the root-field request.
 - **Prompt compression**: keeps retrieved schema context compact for local inference.
-- **Inference**: sends the final prompt to a local Ollama LLM.
+- **Inference**: sends the final prompt to a configured LLM provider.
 - **Inference cache**: reuses responses for identical prompts and model settings.
 - **Model pre-warm**: loads the local model during API startup to reduce first-request latency.
 - **Guardrails**: validates input and generated GraphQL before returning it.
@@ -33,7 +33,7 @@ The RAG pipeline:
 5. Runs retrieval to select schema context for the requested root field.
 6. Builds the final prompt from system instructions, schema context, and the root-field request.
 7. Checks the local inference cache for the final prompt.
-8. Sends only uncached prompt context to local Ollama for inference.
+8. Sends only uncached prompt context to the configured LLM provider for inference.
 9. Applies GraphQL guardrails and returns the GraphQL operation plus Variables JSON.
 
 Because `resources/schema.graphql` is rarely updated, the Chroma index is cached and reused after the first run.
@@ -76,6 +76,12 @@ To force a rebuild:
 
 ```bash
 .venv/bin/python -m graphql_ai.cli --rebuild country
+```
+
+To use OpenAI instead of Ollama:
+
+```bash
+LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.2 .venv/bin/python -m graphql_ai.cli country
 ```
 
 ## Run The API
@@ -139,7 +145,7 @@ The response is JSON:
 }
 ```
 
-`/sample/{root_field}` calls always use the root-field path. The path value is the Query or Mutation field name from the schema that the user wants to generate. For the bundled schema, valid examples include `country`, `countries`, `continent`, and `continents`. The service converts that root field into a focused prompt request, then uses RAG, Ollama inference, and guardrails to generate the sample.
+`/sample/{root_field}` calls always use the root-field path. The path value is the Query or Mutation field name from the schema that the user wants to generate. For the bundled schema, valid examples include `country`, `countries`, `continent`, and `continents`. The service converts that root field into a focused prompt request, then uses RAG, configured inference, and guardrails to generate the sample.
 
 Call the troubleshooting endpoint with a plain-text GraphQL operation:
 
@@ -206,14 +212,14 @@ When the submitted GraphQL operation is valid, troubleshooting returns empty iss
 2. Plan: validate input, parse and validate GraphQL, retrieve schema context, generate guidance, and validate the correction.
 3. Tools: input guardrail, GraphQL-core validation, and RAG schema retrieval.
 4. Tool observations: syntax locations, schema validation errors, and retrieved schema context.
-5. Inference: Ollama receives the observations and proposes detail text plus a suggested operation.
+5. Inference: the configured LLM provider receives the observations and proposes detail text plus a suggested operation.
 6. Guardrail: the suggested operation is validated before it is returned. If it is still invalid, the API returns an empty `suggestion` and includes the validation issue.
 
 Troubleshooting response fields come from different parts of the agent workflow:
 
 - `issues`: GraphQL-core validation output.
-- `detail`: Ollama explanation for invalid calls, generated in the same inference call as the suggested operation.
-- `suggestion`: Ollama suggested operation, validated again with GraphQL-core before returning.
+- `detail`: model explanation for invalid calls, generated in the same inference call as the suggested operation.
+- `suggestion`: model suggested operation, validated again with GraphQL-core before returning.
 
 ## Tests
 
@@ -224,7 +230,7 @@ source .venv/bin/activate
 python -m unittest discover -s tests
 ```
 
-The tests use fake LLM and schema-context providers, so they do not require Chroma, the embedding model, or a running Ollama server.
+The tests use fake LLM and schema-context providers, so they do not require Chroma, the embedding model, a running Ollama server, or an OpenAI API key.
 
 ## Guardrails
 
@@ -241,18 +247,18 @@ These checks keep LLM output aligned with the schema and the API response contra
 
 ## Inference Optimization
 
-The app includes local inference and retrieval optimizations:
+The app includes inference and retrieval optimizations:
 
 - Chroma schema index cache: avoids re-embedding `resources/schema.graphql` on every run.
 - Top-k schema retrieval: retrieves the most relevant schema chunks for `/sample/{root_field}`.
 - Schema-context cache: avoids re-embedding and querying Chroma for repeated root-field requests.
 - Troubleshooting schema cache: keeps the parsed GraphQL schema in memory for repeated validation.
 - Troubleshooting retrieval cache: reuses retrieved schema context for repeated `/troubleshoot/{root_field}` calls.
-- Inference response cache: avoids calling Ollama again when the final prompt and model settings are identical.
+- Inference response cache: avoids calling the LLM provider again when the final prompt and model settings are identical.
 - Prompt compression: reduces prompt tokens by compacting schema context.
 - Model pre-warm: loads the local model during FastAPI startup.
 
-The inference cache is useful because generation is usually the slowest step. It is keyed by the full prompt plus model settings and `PROMPT_CONTRACT_VERSION`, so changing the root-field request, retrieved schema context, model, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_CTX`, `OLLAMA_TEMPERATURE`, `OLLAMA_TOP_P`, `OLLAMA_TOP_K`, `OLLAMA_SEED`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_THINK`, or prompt contract produces a different cache entry.
+The inference cache is useful because generation is usually the slowest step. It is keyed by the full prompt plus provider settings and `PROMPT_CONTRACT_VERSION`, so changing the root-field request, retrieved schema context, model, Ollama runtime options, OpenAI output-token settings, or prompt contract produces a different cache entry.
 
 Ollama runtime options are also tuned for local responsiveness:
 
@@ -266,6 +272,7 @@ Ollama runtime options are also tuned for local responsiveness:
 Defaults:
 
 ```bash
+LLM_PROVIDER=ollama
 OLLAMA_KEEP_ALIVE=10m
 OLLAMA_NUM_CTX=
 OLLAMA_NUM_PREDICT=600
@@ -275,6 +282,11 @@ OLLAMA_TOP_K=1
 OLLAMA_SEED=42
 OLLAMA_PRE_WARM_ENABLED=true
 OLLAMA_PRE_WARM_PROMPT=OK
+OPENAI_API_KEY=
+OPENAI_URL=https://api.openai.com/v1/responses
+OPENAI_MODEL=gpt-5.2
+OPENAI_TIMEOUT_SECONDS=60
+OPENAI_MAX_OUTPUT_TOKENS=600
 PROMPT_COMPRESSION_ENABLED=true
 PROMPT_CONTRACT_VERSION=29
 SCHEMA_CONTEXT_CACHE_ENABLED=true
@@ -322,7 +334,9 @@ graphql_ai/
   llm/
     base.py            # LLM client protocol
     cache.py           # Prompt/response cache wrapper
+    factory.py         # Provider selection and cache wrapping
     ollama_client.py   # Ollama HTTP client
+    openai_client.py   # OpenAI Responses API client
   rag/
     embeddings.py      # Local embedding model loading
     schema_chunks.py   # GraphQL SDL parsing/chunking
@@ -349,14 +363,14 @@ Design notes:
 - The troubleshooting agent owns its goal, plan, tools, tool observations, and final inference step.
 - RAG is represented by the `graphql_ai/rag` module, but it is only the current schema-context approach.
 - The sample-query service depends on a schema-context protocol, so RAG can be swapped or composed with another approach.
-- Ollama access is isolated behind a client class and an LLM protocol.
+- LLM provider access is isolated behind client classes and an LLM protocol.
 - GraphQL-core validation is used as an output guardrail before generated samples are returned.
 - Prompt construction and output validation stay in the service layer.
 - Retrieval, embeddings, and vector-store concerns stay in the RAG layer.
 - Inference caching and model runtime options stay in the LLM layer.
 - Application settings are centralized in `graphql_ai/core/config.py`.
 - The Chroma collection is initialized once when the AI service starts instead of being rebuilt per request.
-- Local generation is serialized with a lock because the embedding model and Ollama call are expensive shared resources.
+- Generation is serialized with a lock because schema retrieval and inference are expensive shared resources.
 
 ## Defaults
 
@@ -366,6 +380,7 @@ CHROMA_PATH=./chroma_db
 CHROMA_COLLECTION=graphql_schema
 SCHEMA_CONTEXT_TOP_K=5
 EMBEDDING_MODEL=resources/models/all-MiniLM-L6-v2
+LLM_PROVIDER=ollama
 OLLAMA_URL=http://127.0.0.1:11434/api/generate
 OLLAMA_MODEL=qwen2.5-coder:3b
 OLLAMA_TIMEOUT_SECONDS=300
@@ -379,6 +394,11 @@ OLLAMA_SEED=42
 OLLAMA_PRE_WARM_ENABLED=true
 OLLAMA_PRE_WARM_PROMPT=OK
 OLLAMA_THINK=false
+OPENAI_API_KEY=
+OPENAI_URL=https://api.openai.com/v1/responses
+OPENAI_MODEL=gpt-5.2
+OPENAI_TIMEOUT_SECONDS=60
+OPENAI_MAX_OUTPUT_TOKENS=600
 PROMPT_COMPRESSION_ENABLED=true
 PROMPT_CONTRACT_VERSION=29
 SCHEMA_CONTEXT_CACHE_ENABLED=true

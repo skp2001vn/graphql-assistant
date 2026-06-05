@@ -8,8 +8,7 @@ from graphql_ai.core.config import AppSettings, get_settings
 from graphql_ai.core.protocols import SchemaContextProvider
 from graphql_ai.domain import TroubleshootingResult
 from graphql_ai.llm.base import LLMClient
-from graphql_ai.llm.cache import CachedLLMClient, PromptResponseCache
-from graphql_ai.llm.ollama_client import OllamaClient
+from graphql_ai.llm.factory import build_llm_client
 from graphql_ai.rag.vector_store import SchemaVectorStore
 from graphql_ai.services.sample_query_service import InvalidRootFieldNameError, validate_root_field_request
 
@@ -237,15 +236,7 @@ class TroubleshootingAgent:
         return f"{TROUBLESHOOTING_SYSTEM_PROMPT}\n\n{user_prompt}"
 
     def _build_default_llm_client(self) -> LLMClient:
-        ollama_client = OllamaClient(settings=self.settings)
-        if not self.settings.inference_cache_enabled:
-            return ollama_client
-
-        return CachedLLMClient(
-            llm_client=ollama_client,
-            cache=PromptResponseCache(self.settings.inference_cache_path),
-            namespace=f"troubleshooting|{self.settings.inference_cache_namespace()}",
-        )
+        return build_llm_client(self.settings, namespace_prefix="troubleshooting")
 
 
 def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:

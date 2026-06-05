@@ -27,6 +27,8 @@ class AppSettings:
         default_factory=lambda: os.getenv("EMBEDDING_MODEL", "resources/models/all-MiniLM-L6-v2")
     )
     schema_context_top_k: int = field(default_factory=lambda: int(os.getenv("SCHEMA_CONTEXT_TOP_K", "5")))
+    llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "ollama"))
+    #llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "openai"))
     ollama_url: str = field(default_factory=lambda: os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"))
     ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b"))
     ollama_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300")))
@@ -40,6 +42,11 @@ class AppSettings:
     ollama_seed: int | None = field(default_factory=lambda: _read_optional_int_env("OLLAMA_SEED", "42"))
     ollama_keep_alive: str = field(default_factory=lambda: os.getenv("OLLAMA_KEEP_ALIVE", "10m"))
     ollama_think: bool = field(default_factory=lambda: _read_bool_env("OLLAMA_THINK"))
+    openai_api_key: str | None = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
+    openai_url: str = field(default_factory=lambda: os.getenv("OPENAI_URL", "https://api.openai.com/v1/responses"))
+    openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5.2"))
+    openai_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
+    openai_max_output_tokens: int = field(default_factory=lambda: int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "600")))
     inference_cache_enabled: bool = field(default_factory=lambda: _read_bool_env("INFERENCE_CACHE_ENABLED", True))
     inference_cache_path: Path = field(default_factory=lambda: Path(os.getenv("INFERENCE_CACHE_PATH", ".cache/inference")))
     schema_context_cache_enabled: bool = field(
@@ -62,8 +69,16 @@ class AppSettings:
         compression, prompt contract version, and model pre-warm flags so
         prompt-cache entries are invalidated when model behavior changes.
         """
-        return "|".join(
-            [
+        provider = self.llm_provider.lower()
+        if provider == "openai":
+            generation_fields = [
+                provider,
+                self.openai_model,
+                str(self.openai_max_output_tokens),
+            ]
+        else:
+            generation_fields = [
+                provider,
                 self.ollama_model,
                 str(self.ollama_num_predict),
                 str(self.ollama_num_ctx),
@@ -73,9 +88,14 @@ class AppSettings:
                 str(self.ollama_seed),
                 self.ollama_keep_alive,
                 str(self.ollama_think),
+                str(self.ollama_pre_warm_enabled),
+            ]
+
+        return "|".join(
+            generation_fields
+            + [
                 str(self.prompt_compression_enabled),
                 self.prompt_contract_version,
-                str(self.ollama_pre_warm_enabled),
             ]
         )
 

@@ -15,6 +15,7 @@ class ConfigTest(unittest.TestCase):
         env = {
             "GRAPHQL_SCHEMA_FILE": "custom/schema.graphql",
             "SCHEMA_CONTEXT_TOP_K": "3",
+            "LLM_PROVIDER": "openai",
             "OLLAMA_MODEL": "test-model",
             "OLLAMA_NUM_PREDICT": "123",
             "OLLAMA_NUM_CTX": "2048",
@@ -24,6 +25,11 @@ class ConfigTest(unittest.TestCase):
             "OLLAMA_SEED": "99",
             "OLLAMA_KEEP_ALIVE": "30m",
             "OLLAMA_THINK": "true",
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_URL": "https://openai.test/v1/responses",
+            "OPENAI_MODEL": "gpt-test",
+            "OPENAI_TIMEOUT_SECONDS": "45",
+            "OPENAI_MAX_OUTPUT_TOKENS": "321",
             "INFERENCE_CACHE_ENABLED": "false",
             "PROMPT_COMPRESSION_ENABLED": "false",
             "PROMPT_CONTRACT_VERSION": "test-contract",
@@ -35,6 +41,7 @@ class ConfigTest(unittest.TestCase):
 
         self.assertEqual("custom/schema.graphql", str(settings.schema_file))
         self.assertEqual(3, settings.schema_context_top_k)
+        self.assertEqual("openai", settings.llm_provider)
         self.assertEqual("test-model", settings.ollama_model)
         self.assertEqual(123, settings.ollama_num_predict)
         self.assertEqual(2048, settings.ollama_num_ctx)
@@ -44,6 +51,11 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(99, settings.ollama_seed)
         self.assertEqual("30m", settings.ollama_keep_alive)
         self.assertTrue(settings.ollama_think)
+        self.assertEqual("test-key", settings.openai_api_key)
+        self.assertEqual("https://openai.test/v1/responses", settings.openai_url)
+        self.assertEqual("gpt-test", settings.openai_model)
+        self.assertEqual(45, settings.openai_timeout_seconds)
+        self.assertEqual(321, settings.openai_max_output_tokens)
         self.assertFalse(settings.inference_cache_enabled)
         self.assertFalse(settings.prompt_compression_enabled)
         self.assertEqual("test-contract", settings.prompt_contract_version)
@@ -67,7 +79,20 @@ class ConfigTest(unittest.TestCase):
 
         namespace = settings.inference_cache_namespace()
 
-        self.assertEqual("model|10|20|0|0.1|1|42|5m|True|False|contract|False", namespace)
+        self.assertEqual("ollama|model|10|20|0|0.1|1|42|5m|True|False|False|contract", namespace)
+
+    def test_openai_inference_cache_namespace_includes_provider_settings(self) -> None:
+        settings = AppSettings(
+            llm_provider="openai",
+            openai_model="gpt-test",
+            openai_max_output_tokens=123,
+            prompt_compression_enabled=False,
+            prompt_contract_version="contract",
+        )
+
+        namespace = settings.inference_cache_namespace()
+
+        self.assertEqual("openai|gpt-test|123|False|contract", namespace)
 
     def test_get_settings_is_cached(self) -> None:
         get_settings.cache_clear()

@@ -450,6 +450,24 @@ query ContinentQuery($code: ID!) {
 
         self.assertEqual([], llm_client.prompts)
 
+    def test_pre_warm_is_skipped_for_openai_provider(self) -> None:
+        settings = AppSettings(
+            schema_file=self.schema_file,
+            llm_provider="openai",
+            ollama_pre_warm_enabled=True,
+            ollama_pre_warm_prompt="warm",
+        )
+        llm_client = FakeLLMClient("ok")
+        service = SampleQueryService(
+            settings=settings,
+            llm_client=llm_client,
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        service.pre_warm()
+
+        self.assertEqual([], llm_client.prompts)
+
 
 if __name__ == "__main__":
     unittest.main()
