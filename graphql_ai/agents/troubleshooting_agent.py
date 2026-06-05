@@ -99,16 +99,22 @@ class InputGuardrailTool:
 
 
 class GraphQLValidationTool:
-    """Tool that captures GraphQL syntax and schema validation issues."""
+    """Tool that captures GraphQL syntax and schema validation issues.
+
+    The GraphQL schema is parsed once when the tool is created because the
+    local SDL file changes rarely and validation may run multiple times per
+    troubleshooting request.
+    """
 
     def __init__(self, schema_file: Any) -> None:
-        """Create a validation tool for a local GraphQL SDL file."""
+        """Create a validation tool with a cached parsed schema."""
         self.schema_file = schema_file
+        self.schema = self._build_schema()
 
     def validate(self, graphql_call: str) -> ValidationObservation:
         """Parse and validate a GraphQL operation, preserving line and column details."""
         try:
-            from graphql import build_schema, parse, validate
+            from graphql import parse, validate
         except ImportError as exc:
             raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
 
@@ -117,22 +123,39 @@ class GraphQLValidationTool:
         except Exception as exc:
             return ValidationObservation([format_graphql_issue(exc)])
 
-        schema = build_schema(self.schema_file.read_text(encoding="utf-8"))
-        return ValidationObservation([format_graphql_issue(error) for error in validate(schema, document)])
+        return ValidationObservation([format_graphql_issue(error) for error in validate(self.schema, document)])
+
+    def _build_schema(self) -> Any:
+        try:
+            from graphql import build_schema
+        except ImportError as exc:
+            raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
+
+        return build_schema(self.schema_file.read_text(encoding="utf-8"))
 
 
 class SchemaRetrievalTool:
-    """Tool that retrieves RAG schema context for troubleshooting."""
+    """Tool that retrieves and caches RAG schema context for troubleshooting."""
 
     def __init__(self, schema_context_provider: SchemaContextProvider) -> None:
-        """Create a retrieval tool from the configured schema-context provider."""
+        """Create a retrieval tool with an in-memory cache per root field."""
         self.schema_context_provider = schema_context_provider
+        self._cache: dict[str, str] = {}
+        self._cache_lock = Lock()
 
     def retrieve(self, root_field: str) -> str:
         """Retrieve schema context for the root field being troubleshot."""
-        return self.schema_context_provider.retrieve_schema_context(
+        with self._cache_lock:
+            cached_context = self._cache.get(root_field)
+        if cached_context is not None:
+            return cached_context
+
+        schema_context = self.schema_context_provider.retrieve_schema_context(
             f"Troubleshoot GraphQL Query or Mutation root field {root_field}"
         )
+        with self._cache_lock:
+            self._cache[root_field] = schema_context
+        return schema_context
 
 
 class TroubleshootingAgent:

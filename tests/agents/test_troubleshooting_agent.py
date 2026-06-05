@@ -57,6 +57,16 @@ class FakeSchemaContextProvider:
         return self.context
 
 
+class CountingSchemaFile:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.read_count = 0
+
+    def read_text(self, encoding: str) -> str:
+        self.read_count += 1
+        return self.path.read_text(encoding=encoding)
+
+
 class TroubleshootingAgentTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -96,6 +106,15 @@ query CountryQuery($code: ID!) {
         self.assertEqual(1, len(observation.issues))
         self.assertIn("Syntax Error", observation.issues[0])
         self.assertIn("Location: line", observation.issues[0])
+
+    def test_validation_tool_caches_parsed_schema(self) -> None:
+        schema_file = CountingSchemaFile(self.schema_file)
+        tool = GraphQLValidationTool(schema_file)
+
+        tool.validate("query CountryQuery($code: ID!) { country(code: $code) { code } }")
+        tool.validate("query CountriesQuery { countries { code } }")
+
+        self.assertEqual(1, schema_file.read_count)
 
     def test_parse_troubleshooting_response_reads_detail_and_suggested_operation(self) -> None:
         detail, suggestion = parse_troubleshooting_response(
@@ -235,6 +254,36 @@ query CountyQuery($code: ID!) {
         )
         self.assertIn("Plan:", llm_client.prompts[0])
         self.assertIn("Validation issues:", llm_client.prompts[0])
+
+    def test_agent_caches_retrieved_schema_context_per_root_field(self) -> None:
+        llm_response = """
+```text
+Use the schema field `country` instead of `county`.
+```
+
+```graphql
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+```
+"""
+        schema_context_provider = FakeSchemaContextProvider()
+        agent = TroubleshootingAgent(
+            settings=self.settings,
+            llm_client=FakeLLMClient(llm_response),
+            schema_context_provider=schema_context_provider,
+        )
+
+        agent.troubleshoot("county", "query CountyQuery($code: ID!) { county(code: $code) { code } }")
+        agent.troubleshoot("county", "query CountyQuery($code: ID!) { county(code: $code) { name } }")
+
+        self.assertEqual(
+            ["Troubleshoot GraphQL Query or Mutation root field county"],
+            schema_context_provider.requests,
+        )
 
     def test_agent_rejects_invalid_root_field_before_tools(self) -> None:
         llm_client = FakeLLMClient("unused")

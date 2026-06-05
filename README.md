@@ -246,6 +246,8 @@ The app includes local inference and retrieval optimizations:
 - Chroma schema index cache: avoids re-embedding `resources/schema.graphql` on every run.
 - Top-k schema retrieval: retrieves the most relevant schema chunks for `/sample/{root_field}`.
 - Schema-context cache: avoids re-embedding and querying Chroma for repeated root-field requests.
+- Troubleshooting schema cache: keeps the parsed GraphQL schema in memory for repeated validation.
+- Troubleshooting retrieval cache: reuses retrieved schema context for repeated `/troubleshoot/{root_field}` calls.
 - Inference response cache: avoids calling Ollama again when the final prompt and model settings are identical.
 - Prompt compression: reduces prompt tokens by compacting schema context.
 - Model pre-warm: loads the local model during FastAPI startup.
