@@ -22,7 +22,8 @@ This project highlights common AI application patterns:
 - **Plan**: ordered steps the agent follows to troubleshoot a GraphQL call.
 - **Tools**: deterministic helpers for input guardrails, GraphQL validation, and schema retrieval.
 - **Tool observations**: syntax errors, schema validation errors, and retrieved schema context passed into inference.
-- **Model routing and prompt evaluation**: future extension points for selecting and assessing model behavior.
+- **Prompt evaluation**: runs fixed cases and scores model output with existing GraphQL guardrails.
+- **Model routing**: future extension point for selecting providers or models per workflow.
 
 The RAG pipeline:
 
@@ -232,6 +233,32 @@ python -m unittest discover -s tests
 
 The tests use fake LLM and schema-context providers, so they do not require Chroma, the embedding model, a running Ollama server, or an OpenAI API key.
 
+## Prompt Evaluation
+
+Run the simple prompt evaluation suite:
+
+```bash
+source .venv/bin/activate
+.venv/bin/python -m graphql_ai.evaluation.prompt_eval
+```
+
+Prompt evaluation runs a few fixed educational cases through the configured LLM provider and scores the results with existing guardrails:
+
+- Sample generation output must validate against the GraphQL schema.
+- Variables JSON must match variables used by the operation.
+- Troubleshooting must return detail text and a suggested operation.
+- Troubleshooting suggestions must validate against the GraphQL schema.
+- Generated text must include a few expected root-field or response-field strings.
+
+To evaluate only one workflow:
+
+```bash
+.venv/bin/python -m graphql_ai.evaluation.prompt_eval --workflow sample
+.venv/bin/python -m graphql_ai.evaluation.prompt_eval --workflow troubleshoot
+```
+
+This is intentionally small. It is meant to show the prompt evaluation concept before adding richer datasets, prompt variants, model comparisons, or routing rules.
+
 ## Guardrails
 
 The app applies input and output guardrails:
@@ -331,6 +358,8 @@ graphql_ai/
     responses.py       # Shared response formatting
   domain/
     models.py          # Domain dataclasses shared by services and RAG
+  evaluation/
+    prompt_eval.py     # Simple prompt evaluation runner
   llm/
     base.py            # LLM client protocol
     cache.py           # Prompt/response cache wrapper
@@ -350,6 +379,7 @@ tests/                 # Unit and integration tests with fake AI dependencies
   api/
   core/
   domain/
+  evaluation/
   llm/
   rag/
   services/

@@ -26,7 +26,7 @@ class GeneratedGraphQLSample:
 
 @dataclass(frozen=True)
 class TroubleshootingResult:
-    """Troubleshooting result with validator issues and Ollama-generated detail."""
+    """Troubleshooting result with validator issues and model-generated detail."""
 
     root_field: str
     status: str
