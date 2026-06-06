@@ -19,37 +19,17 @@ class AssistantRequest(BaseModel):
     )
 
 
-class AgentPlanStepResponse(BaseModel):
-    """HTTP representation of one assistant plan step."""
-
-    name: str
-    tool_name: str
-    reason: str
-
-
-class ToolCallResponse(BaseModel):
-    """HTTP representation of one assistant tool call."""
-
-    tool_name: str
-    inputs: dict[str, str]
-
-
-class ToolObservationResponse(BaseModel):
-    """HTTP representation of one assistant tool observation."""
-
-    tool_name: str
-    output_type: str
-    summary: str
-
-
 class AssistantResultResponse(BaseModel):
-    """HTTP response for the GraphQL AI assistant."""
+    """HTTP response for the GraphQL AI assistant final result."""
 
-    intent: str
-    plan: list[AgentPlanStepResponse]
-    tool_calls: list[ToolCallResponse]
-    observations: list[ToolObservationResponse]
-    result: dict[str, Any]
+    type: str
+    operation: list[str] | None = None
+    variables: dict[str, Any] | None = None
+    root_field: str | None = None
+    status: str | None = None
+    issues: list[str] | None = None
+    detail: list[str] | None = None
+    suggestion: list[str] | None = None
 
 
 class HealthResponse(BaseModel):

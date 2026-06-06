@@ -94,21 +94,20 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual(
             {
-                "intent": "generate_sample",
-                "plan": [],
-                "tool_calls": [],
-                "observations": [],
-                "result": {
-                    "type": "sample",
-                    "operation": [
-                        "query CountryQuery($code: ID!) {",
-                        "  country(code: $code) {",
-                        "    code",
-                        "  }",
-                        "}",
-                    ],
-                    "variables": {"code": "US"},
-                },
+                "type": "sample",
+                "operation": [
+                    "query CountryQuery($code: ID!) {",
+                    "  country(code: $code) {",
+                    "    code",
+                    "  }",
+                    "}",
+                ],
+                "variables": {"code": "US"},
+                "root_field": None,
+                "status": None,
+                "issues": None,
+                "detail": None,
+                "suggestion": None,
             },
             response.json(),
         )
@@ -137,8 +136,25 @@ class ApiTest(unittest.TestCase):
         )
 
         self.assertEqual(200, response.status_code)
-        self.assertEqual("troubleshoot", response.json()["intent"])
-        self.assertEqual("troubleshooting", response.json()["result"]["type"])
+        self.assertEqual(
+            {
+                "type": "troubleshooting",
+                "operation": None,
+                "variables": None,
+                "root_field": "country",
+                "status": "invalid",
+                "issues": ["Cannot query field 'county' on type 'Query'. Did you mean 'country'?"],
+                "detail": ["Use the schema field `country` instead of `county`."],
+                "suggestion": [
+                    "query CountryQuery($code: ID!) {",
+                    "  country(code: $code) {",
+                    "    code",
+                    "  }",
+                    "}",
+                ],
+            },
+            response.json(),
+        )
         self.assertEqual(
             [GraphQLAIGoal(goal="Something is wrong with this query", root_field="country", graphql_call=graphql_call)],
             agent.goals,
