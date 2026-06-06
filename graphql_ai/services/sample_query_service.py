@@ -10,6 +10,7 @@ from graphql_ai.core.protocols import SchemaContextProvider
 from graphql_ai.domain import GeneratedGraphQLSample
 from graphql_ai.llm.base import LLMClient
 from graphql_ai.llm.factory import build_llm_client
+from graphql_ai.llm.pre_warm import LLMPreWarmer
 from graphql_ai.rag.vector_store import SchemaVectorStore
 
 
@@ -77,6 +78,7 @@ class SampleQueryService:
         self,
         settings: AppSettings | None = None,
         llm_client: LLMClient | None = None,
+        llm_pre_warmer: LLMPreWarmer | None = None,
         schema_context_provider: SchemaContextProvider | None = None,
         rebuild_index: bool = False,
         allow_downloads: bool = False,
@@ -89,8 +91,8 @@ class SampleQueryService:
             allow_downloads=allow_downloads,
         )
         self.llm_client = llm_client or self._build_default_llm_client()
+        self.llm_pre_warmer = llm_pre_warmer or LLMPreWarmer(self.settings, self.llm_client)
         self._generation_lock = Lock()
-        self._pre_warmed = False
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
         """Generate a sample GraphQL operation and variables for an API root field.
@@ -113,7 +115,6 @@ class SampleQueryService:
         retrieval_request = f"GraphQL Query or Mutation root field {normalized_root_field}"
 
         with self._generation_lock:
-            self.pre_warm()
             schema_context = self.schema_context_provider.retrieve_schema_context(retrieval_request)
             raw_response = self.llm_client.generate(
                 self._build_prompt(
@@ -136,22 +137,13 @@ class SampleQueryService:
         return sample
 
     def pre_warm(self) -> None:
-        """Pre-load the local Ollama model before custom inference.
+        """Pre-load configured LLM resources before custom inference.
 
-        This inference optimization sends a tiny prompt through the configured
-        LLM client so Ollama loads the model before the first custom generation.
-        The setting trades a slightly slower first AI request for lower latency
-        on following AI requests.
+        Model pre-warm is coordinated by the common LLM layer. For the default
+        Ollama provider, this sends a tiny prompt to load the local model before
+        the first custom generation.
         """
-        if self._pre_warmed:
-            return
-
-        if self.settings.llm_provider.lower() != "ollama" or not self.settings.ollama_pre_warm_enabled:
-            self._pre_warmed = True
-            return
-
-        self.llm_client.generate(self.settings.ollama_pre_warm_prompt)
-        self._pre_warmed = True
+        self.llm_pre_warmer.pre_warm()
 
     def _build_prompt(
         self,

@@ -9,6 +9,7 @@ from graphql_ai.core.protocols import SchemaContextProvider
 from graphql_ai.domain import TroubleshootingResult
 from graphql_ai.llm.base import LLMClient
 from graphql_ai.llm.factory import build_llm_client
+from graphql_ai.llm.pre_warm import LLMPreWarmer
 from graphql_ai.rag.vector_store import SchemaVectorStore
 from graphql_ai.services.sample_query_service import InvalidRootFieldNameError, validate_root_field_request
 
@@ -154,12 +155,14 @@ class TroubleshootingAgent:
         self,
         settings: AppSettings | None = None,
         llm_client: LLMClient | None = None,
+        llm_pre_warmer: LLMPreWarmer | None = None,
         schema_context_provider: SchemaContextProvider | None = None,
         allow_downloads: bool = False,
     ) -> None:
         """Create a troubleshooting service with injectable dependencies."""
         self.settings = settings or get_settings()
         self.llm_client = llm_client or self._build_default_llm_client()
+        self.llm_pre_warmer = llm_pre_warmer or LLMPreWarmer(self.settings, self.llm_client)
         self.schema_context_provider = schema_context_provider or SchemaVectorStore(
             settings=self.settings,
             allow_downloads=allow_downloads,
@@ -179,7 +182,7 @@ class TroubleshootingAgent:
         4. Retrieve focused schema context for the requested root field.
         5. Build a prompt from validation issues, schema context, and the
            submitted operation.
-        6. Ask the configured LLM provider for detail text and a candidate fix.
+        6. Pre-warm configured LLM resources and ask for detail text and a candidate fix.
         7. Clean the model detail so API users see explanation, not raw errors.
         8. Validate the suggested operation before returning it.
 
@@ -202,6 +205,7 @@ class TroubleshootingAgent:
         schema_context = self.schema_context_retriever.retrieve(normalized_root_field)
 
         with self._inference_lock:
+            self.llm_pre_warmer.pre_warm()
             raw_response = self.llm_client.generate(
                 self._build_prompt(
                     root_field=normalized_root_field,

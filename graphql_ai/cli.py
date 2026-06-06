@@ -26,6 +26,7 @@ def main() -> None:
     """Run the sample-query CLI."""
     args = parse_args()
     sample_service = SampleQueryService(rebuild_index=args.rebuild)
+    sample_service.llm_pre_warmer.pre_warm()
     sample = sample_service.generate(args.root_field)
 
     print("\nGenerated result:\n")

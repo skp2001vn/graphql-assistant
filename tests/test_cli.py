@@ -9,9 +9,18 @@ from graphql_ai import cli
 from graphql_ai.domain import GeneratedGraphQLSample
 
 
+class FakeLLMPreWarmer:
+    def __init__(self) -> None:
+        self.pre_warm_called = False
+
+    def pre_warm(self) -> None:
+        self.pre_warm_called = True
+
+
 class FakeSampleService:
     def __init__(self, rebuild_index: bool = False) -> None:
         self.rebuild_index = rebuild_index
+        self.llm_pre_warmer = FakeLLMPreWarmer()
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
         return GeneratedGraphQLSample(

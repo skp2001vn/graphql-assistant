@@ -167,6 +167,7 @@ def main() -> None:
     """Run prompt evaluation cases against the configured LLM provider."""
     args = parse_args()
     sample_service = SampleQueryService(rebuild_index=args.rebuild)
+    sample_service.llm_pre_warmer.pre_warm()
     results: list[PromptEvalResult] = []
 
     if args.workflow in {"all", "sample"}:
@@ -176,6 +177,7 @@ def main() -> None:
         troubleshooting_agent = TroubleshootingAgent(
             settings=sample_service.settings,
             llm_client=sample_service.llm_client,
+            llm_pre_warmer=sample_service.llm_pre_warmer,
             schema_context_provider=sample_service.schema_context_provider,
         )
         results.extend(

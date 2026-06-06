@@ -10,10 +10,14 @@ from graphql_ai.llm.cache import CachedLLMClient, PromptResponseCache
 class FakeLLMClient:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.pre_warm_calls: list[str] = []
 
     def generate(self, prompt: str) -> str:
         self.calls.append(prompt)
         return f"response for {prompt}"
+
+    def pre_warm(self, prompt: str) -> None:
+        self.pre_warm_calls.append(prompt)
 
 
 class LLMCacheTest(unittest.TestCase):
@@ -63,6 +67,21 @@ class LLMCacheTest(unittest.TestCase):
 
         self.assertEqual(["same prompt"], first_llm_client.calls)
         self.assertEqual(["same prompt"], second_llm_client.calls)
+
+    def test_cached_llm_client_pre_warm_bypasses_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            llm_client = FakeLLMClient()
+            cached_client = CachedLLMClient(
+                llm_client=llm_client,
+                cache=PromptResponseCache(Path(temp_dir)),
+                namespace="test-model",
+            )
+
+            cached_client.generate("warm")
+            cached_client.pre_warm("warm")
+
+        self.assertEqual(["warm"], llm_client.calls)
+        self.assertEqual(["warm"], llm_client.pre_warm_calls)
 
 
 if __name__ == "__main__":

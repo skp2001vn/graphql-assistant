@@ -8,3 +8,10 @@ class LLMClient(Protocol):
 
     def generate(self, prompt: str) -> str:
         """Generate text from a prompt."""
+
+
+class WarmableLLMClient(LLMClient, Protocol):
+    """Protocol for provider clients that can pre-load model resources."""
+
+    def pre_warm(self, prompt: str) -> None:
+        """Pre-load provider resources before custom inference."""

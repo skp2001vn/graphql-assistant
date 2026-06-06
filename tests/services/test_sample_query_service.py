@@ -403,7 +403,7 @@ query ContinentQuery($code: ID!) {
 
         self.assertEqual(["warm"], llm_client.prompts)
 
-    def test_generate_prewarms_once_before_generation(self) -> None:
+    def test_generate_does_not_pre_warm_before_generation(self) -> None:
         settings = AppSettings(
             schema_file=self.schema_file,
             inference_cache_enabled=False,
@@ -424,7 +424,7 @@ query ContinentQuery($code: ID!) {
 {"code": "AF"}
 ```
 """
-        llm_client = FakeLLMClient(["warm response", llm_response, llm_response])
+        llm_client = FakeLLMClient([llm_response, llm_response])
         service = SampleQueryService(
             settings=settings,
             llm_client=llm_client,
@@ -434,8 +434,8 @@ query ContinentQuery($code: ID!) {
         service.generate("continent")
         service.generate("continent")
 
-        self.assertEqual(3, len(llm_client.prompts))
-        self.assertEqual("warm", llm_client.prompts[0])
+        self.assertEqual(2, len(llm_client.prompts))
+        self.assertTrue(all("ContinentQuery" in prompt for prompt in llm_client.prompts))
 
     def test_pre_warm_is_skipped_when_disabled(self) -> None:
         settings = AppSettings(schema_file=self.schema_file, ollama_pre_warm_enabled=False)

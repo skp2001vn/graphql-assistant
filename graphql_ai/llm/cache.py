@@ -82,6 +82,15 @@ class CachedLLMClient:
         self.cache.set(cache_key, response)
         return response
 
+    def pre_warm(self, prompt: str) -> None:
+        """Pre-warm the wrapped provider without reading or writing inference cache."""
+        pre_warm = getattr(self.llm_client, "pre_warm", None)
+        if callable(pre_warm):
+            pre_warm(prompt)
+            return
+
+        self.llm_client.generate(prompt)
+
     def _cache_key(self, prompt: str) -> str:
         key_material = json.dumps(
             {

@@ -10,6 +10,10 @@ class OllamaClient:
         """Create an Ollama client from application settings."""
         self.settings = settings or get_settings()
 
+    def pre_warm(self, prompt: str) -> None:
+        """Pre-load the local Ollama model before custom inference."""
+        self.generate(prompt)
+
     def generate(self, prompt: str) -> str:
         """Generate text with runtime options tuned for local inference.
 

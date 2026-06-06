@@ -20,6 +20,7 @@ class FakeSampleService:
         self.pre_warm_called = False
         self.settings = object()
         self.llm_client = object()
+        self.llm_pre_warmer = object()
         self.schema_context_provider = object()
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
@@ -32,6 +33,16 @@ class FakeSampleService:
             variables={"code": "US"},
             raw_response="raw",
         )
+
+    def pre_warm(self) -> None:
+        self.pre_warm_called = True
+
+
+class FakeLLMPreWarmer:
+    def __init__(self, settings: object, llm_client: object) -> None:
+        self.settings = settings
+        self.llm_client = llm_client
+        self.pre_warm_called = False
 
     def pre_warm(self) -> None:
         self.pre_warm_called = True
@@ -190,8 +201,16 @@ class ApiTest(unittest.TestCase):
 
     def test_create_app_lifespan_constructs_and_prewarm_service(self) -> None:
         fake_service = FakeSampleService()
+        settings = object()
+        schema_context_provider = object()
+        llm_client = object()
+        pre_warmer = FakeLLMPreWarmer(settings, llm_client)
 
         with (
+            patch("graphql_ai.main.get_settings", return_value=settings),
+            patch("graphql_ai.main.SchemaVectorStore", return_value=schema_context_provider) as vector_store_class,
+            patch("graphql_ai.main.build_llm_client", return_value=llm_client) as llm_factory,
+            patch("graphql_ai.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
             patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class,
             patch("graphql_ai.main.TroubleshootingAgent") as agent_class,
         ):
@@ -200,18 +219,32 @@ class ApiTest(unittest.TestCase):
                 response = client.get("/health")
 
         self.assertEqual(200, response.status_code)
-        service_class.assert_called_once()
-        agent_class.assert_called_once_with(
-            settings=fake_service.settings,
-            llm_client=fake_service.llm_client,
-            schema_context_provider=fake_service.schema_context_provider,
+        vector_store_class.assert_called_once_with(settings=settings)
+        llm_factory.assert_called_once_with(settings)
+        pre_warmer_class.assert_called_once_with(settings, llm_client)
+        self.assertTrue(pre_warmer.pre_warm_called)
+        service_class.assert_called_once_with(
+            settings=settings,
+            llm_client=llm_client,
+            llm_pre_warmer=pre_warmer,
+            schema_context_provider=schema_context_provider,
         )
-        self.assertTrue(fake_service.pre_warm_called)
+        agent_class.assert_called_once_with(
+            settings=settings,
+            llm_client=llm_client,
+            llm_pre_warmer=pre_warmer,
+            schema_context_provider=schema_context_provider,
+        )
+        self.assertFalse(fake_service.pre_warm_called)
 
     def test_create_app_uses_startup_service_for_sample_request(self) -> None:
         fake_service = FakeSampleService()
 
         with (
+            patch("graphql_ai.main.get_settings", return_value=object()),
+            patch("graphql_ai.main.SchemaVectorStore", return_value=object()),
+            patch("graphql_ai.main.build_llm_client", return_value=object()),
+            patch("graphql_ai.main.LLMPreWarmer", return_value=FakeLLMPreWarmer(object(), object())),
             patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class,
             patch("graphql_ai.main.TroubleshootingAgent"),
         ):

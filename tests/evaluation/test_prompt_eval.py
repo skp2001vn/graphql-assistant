@@ -51,10 +51,19 @@ class FakeTroubleshootingAgent:
         return self.result
 
 
+class FakeLLMPreWarmer:
+    def __init__(self) -> None:
+        self.pre_warm_called = False
+
+    def pre_warm(self) -> None:
+        self.pre_warm_called = True
+
+
 class FakeMainSampleService:
     def __init__(self, rebuild_index: bool = False) -> None:
         self.settings = type("Settings", (), {"schema_file": Path("schema.graphql")})()
         self.llm_client = object()
+        self.llm_pre_warmer = FakeLLMPreWarmer()
         self.schema_context_provider = object()
         self.rebuild_index = rebuild_index
 
