@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Path, Request
 
-from graphql_ai.agents import TroubleshootingAgent
 from graphql_ai.api.schemas import HealthResponse, SampleQueryResponse, TroubleshootingResponse
 from graphql_ai.services.sample_query_service import (
     InvalidRootFieldNameError,
     SampleQueryService,
 )
+from graphql_ai.services.troubleshooting_service import TroubleshootingService
 
 
 router = APIRouter()
@@ -18,9 +18,9 @@ def get_sample_query_service(request: Request) -> SampleQueryService:
     return request.app.state.sample_service
 
 
-def get_troubleshooting_agent(request: Request) -> TroubleshootingAgent:
-    """Return the application-scoped GraphQL troubleshooting agent."""
-    return request.app.state.troubleshooting_agent
+def get_troubleshooting_service(request: Request) -> TroubleshootingService:
+    """Return the application-scoped GraphQL troubleshooting service."""
+    return request.app.state.troubleshooting_service
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -72,18 +72,18 @@ async def troubleshoot_graphql_call(
         ),
     ),
 ) -> TroubleshootingResponse:
-    """Troubleshoot a submitted GraphQL call with an agent plan and tools.
+    """Troubleshoot a submitted GraphQL call with validation, RAG, inference, and guardrails.
 
     The endpoint accepts either a plain-text GraphQL operation or Postman's
     GraphQL JSON body format: `{"query": "...", "variables": {...}}`.
     Variables are accepted for client compatibility; troubleshooting uses the
     query text. The route delegates validation, schema retrieval, inference,
-    and suggested-operation guardrails to `TroubleshootingAgent`.
+    and suggested-operation guardrails to `TroubleshootingService`.
     """
     try:
         graphql_call = await read_troubleshooting_graphql_call(request)
-        troubleshooting_agent = get_troubleshooting_agent(request)
-        result = troubleshooting_agent.troubleshoot(root_field, graphql_call)
+        troubleshooting_service = get_troubleshooting_service(request)
+        result = troubleshooting_service.troubleshoot(root_field, graphql_call)
     except InvalidRootFieldNameError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:

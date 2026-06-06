@@ -142,13 +142,12 @@ class SchemaContextRetriever:
         return self._cache[root_field]
 
 
-class TroubleshootingAgent:
-    """Service that troubleshoots user-provided GraphQL operations.
+class TroubleshootingService:
+    """Business service that troubleshoots user-provided GraphQL operations.
 
-    The service runs deterministic input guardrails, validates the user's
-    GraphQL operation, retrieves focused schema context with RAG, and asks the
-    LLM only to explain the issue and propose a candidate fix. The suggested
-    operation is validated before it is returned.
+    This service coordinates deterministic input guardrails, GraphQL
+    validation, RAG schema retrieval, prompt construction, inference, and
+    suggested-operation guardrails for the troubleshooting use case.
     """
 
     def __init__(

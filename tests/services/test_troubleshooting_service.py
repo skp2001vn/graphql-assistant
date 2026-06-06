@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from graphql_ai.agents.troubleshooting_agent import TroubleshootingAgent
 from graphql_ai.core.config import AppSettings
+from graphql_ai.services.troubleshooting_service import TroubleshootingService
 
 
 SCHEMA = """
@@ -47,7 +47,7 @@ class FakeSchemaContextProvider:
         return SCHEMA
 
 
-class TroubleshootingAgentTest(unittest.TestCase):
+class TroubleshootingServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.schema_file = Path(self.temp_dir.name) / "schema.graphql"
@@ -83,14 +83,14 @@ query CountryQuery($code: ID!) {
         )
         pre_warmer = FakeLLMPreWarmer()
         schema_context_provider = FakeSchemaContextProvider()
-        agent = TroubleshootingAgent(
+        service = TroubleshootingService(
             settings=self.settings,
             llm_client=llm_client,
             llm_pre_warmer=pre_warmer,
             schema_context_provider=schema_context_provider,
         )
 
-        result = agent.troubleshoot(
+        result = service.troubleshoot(
             "county",
             'query CountyQuery($code: ID!) { county(code: $code) { code } }',
         )
@@ -104,14 +104,14 @@ query CountryQuery($code: ID!) {
         llm_client = FakeLLMClient("unused")
         pre_warmer = FakeLLMPreWarmer()
         schema_context_provider = FakeSchemaContextProvider()
-        agent = TroubleshootingAgent(
+        service = TroubleshootingService(
             settings=self.settings,
             llm_client=llm_client,
             llm_pre_warmer=pre_warmer,
             schema_context_provider=schema_context_provider,
         )
 
-        result = agent.troubleshoot(
+        result = service.troubleshoot(
             "country",
             'query CountryQuery($code: ID!) { country(code: $code) { code name } }',
         )

@@ -13,7 +13,7 @@ class SampleQueryResponse(BaseModel):
 
 
 class TroubleshootingResponse(BaseModel):
-    """HTTP response for the GraphQL troubleshooting agent."""
+    """HTTP response for the GraphQL troubleshooting service."""
 
     root_field: str = Field(description="GraphQL Query or Mutation field name being troubleshot.")
     status: str = Field(description="Validation status for the submitted GraphQL operation.")
@@ -21,7 +21,7 @@ class TroubleshootingResponse(BaseModel):
     detail: list[str] = Field(default_factory=list, description="Model-generated troubleshooting guidance lines.")
     suggestion: list[str] = Field(
         default_factory=list,
-        description="Agent-suggested GraphQL operation formatted as lines.",
+        description="Suggested GraphQL operation formatted as lines.",
     )
 
 

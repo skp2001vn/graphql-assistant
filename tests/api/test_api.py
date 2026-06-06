@@ -48,7 +48,7 @@ class FakeLLMPreWarmer:
         self.pre_warm_called = True
 
 
-class FakeTroubleshootingAgent:
+class FakeTroubleshootingService:
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error
         self.requests: list[tuple[str, str]] = []
@@ -70,12 +70,12 @@ class FakeTroubleshootingAgent:
 
 def build_test_client(
     sample_service: FakeSampleService,
-    troubleshooting_agent: FakeTroubleshootingAgent | None = None,
+    troubleshooting_service: FakeTroubleshootingService | None = None,
 ) -> TestClient:
     app = FastAPI(default_response_class=PrettyJSONResponse)
     app.include_router(router)
     app.state.sample_service = sample_service
-    app.state.troubleshooting_agent = troubleshooting_agent or FakeTroubleshootingAgent()
+    app.state.troubleshooting_service = troubleshooting_service or FakeTroubleshootingService()
     return TestClient(app)
 
 
@@ -126,9 +126,9 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(503, response.status_code)
         self.assertEqual({"detail": "generation failed"}, response.json())
 
-    def test_troubleshoot_endpoint_returns_agent_result(self) -> None:
-        troubleshooting_agent = FakeTroubleshootingAgent()
-        client = build_test_client(FakeSampleService(), troubleshooting_agent)
+    def test_troubleshoot_endpoint_returns_service_result(self) -> None:
+        troubleshooting_service = FakeTroubleshootingService()
+        client = build_test_client(FakeSampleService(), troubleshooting_service)
         graphql_call = 'query CountyQuery($code: ID!) { county(code: $code) { code } }'
 
         response = client.post(
@@ -154,11 +154,11 @@ class ApiTest(unittest.TestCase):
             },
             response.json(),
         )
-        self.assertEqual([("county", graphql_call)], troubleshooting_agent.requests)
+        self.assertEqual([("county", graphql_call)], troubleshooting_service.requests)
 
     def test_troubleshoot_endpoint_accepts_postman_graphql_json_body(self) -> None:
-        troubleshooting_agent = FakeTroubleshootingAgent()
-        client = build_test_client(FakeSampleService(), troubleshooting_agent)
+        troubleshooting_service = FakeTroubleshootingService()
+        client = build_test_client(FakeSampleService(), troubleshooting_service)
         graphql_call = 'query CountyQuery($code: ID!) { county(code: $code) { code } }'
 
         response = client.post(
@@ -171,10 +171,10 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertEqual("invalid", response.json()["status"])
-        self.assertEqual([("county", graphql_call)], troubleshooting_agent.requests)
+        self.assertEqual([("county", graphql_call)], troubleshooting_service.requests)
 
     def test_troubleshoot_endpoint_rejects_json_body_without_query(self) -> None:
-        client = build_test_client(FakeSampleService(), FakeTroubleshootingAgent())
+        client = build_test_client(FakeSampleService(), FakeTroubleshootingService())
 
         response = client.post("/troubleshoot/country", json={"variables": {"code": "US"}})
 
@@ -187,7 +187,7 @@ class ApiTest(unittest.TestCase):
     def test_troubleshoot_endpoint_returns_400_for_invalid_root_field(self) -> None:
         client = build_test_client(
             FakeSampleService(),
-            FakeTroubleshootingAgent(InvalidRootFieldNameError("invalid root field")),
+            FakeTroubleshootingService(InvalidRootFieldNameError("invalid root field")),
         )
 
         response = client.post(
@@ -212,7 +212,7 @@ class ApiTest(unittest.TestCase):
             patch("graphql_ai.main.build_llm_client", return_value=llm_client) as llm_factory,
             patch("graphql_ai.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
             patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class,
-            patch("graphql_ai.main.TroubleshootingAgent") as agent_class,
+            patch("graphql_ai.main.TroubleshootingService") as troubleshooting_service_class,
         ):
             app = create_app()
             with TestClient(app) as client:
@@ -229,7 +229,7 @@ class ApiTest(unittest.TestCase):
             llm_pre_warmer=pre_warmer,
             schema_context_provider=schema_context_provider,
         )
-        agent_class.assert_called_once_with(
+        troubleshooting_service_class.assert_called_once_with(
             settings=settings,
             llm_client=llm_client,
             llm_pre_warmer=pre_warmer,
@@ -246,7 +246,7 @@ class ApiTest(unittest.TestCase):
             patch("graphql_ai.main.build_llm_client", return_value=object()),
             patch("graphql_ai.main.LLMPreWarmer", return_value=FakeLLMPreWarmer(object(), object())),
             patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class,
-            patch("graphql_ai.main.TroubleshootingAgent"),
+            patch("graphql_ai.main.TroubleshootingService"),
         ):
             app = create_app()
             with TestClient(app) as client:

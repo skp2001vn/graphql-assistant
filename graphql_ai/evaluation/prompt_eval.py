@@ -4,13 +4,13 @@ import argparse
 from dataclasses import dataclass
 from typing import Iterable, Protocol
 
-from graphql_ai.agents import TroubleshootingAgent
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
 from graphql_ai.services.sample_query_service import (
     SampleQueryService,
     validate_operation_against_schema,
     validate_variable_usage,
 )
+from graphql_ai.services.troubleshooting_service import TroubleshootingService
 
 
 @dataclass(frozen=True)
@@ -58,8 +58,8 @@ class SampleGenerationService(Protocol):
         """Generate a sample GraphQL operation for a root field."""
 
 
-class TroubleshootingService(Protocol):
-    """Protocol for agents that troubleshoot GraphQL operations for evals."""
+class TroubleshootingRunner(Protocol):
+    """Protocol for services that troubleshoot GraphQL operations for evals."""
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
         """Troubleshoot a GraphQL operation."""
@@ -122,14 +122,14 @@ def run_sample_prompt_eval_cases(
 
 
 def run_troubleshooting_prompt_eval_cases(
-    agent: TroubleshootingService,
+    service: TroubleshootingRunner,
     schema_file: object,
     cases: Iterable[TroubleshootingPromptEvalCase] = DEFAULT_TROUBLESHOOTING_CASES,
 ) -> list[PromptEvalResult]:
     """Run troubleshooting prompt evaluation cases.
 
     Each case submits an intentionally invalid GraphQL operation to the
-    troubleshooting agent, then checks that the agent reports issues, produces
+    troubleshooting service, then checks that the service reports issues, produces
     user-facing detail text, returns a suggestion, and that the suggestion
     validates against the schema.
     """
@@ -137,7 +137,7 @@ def run_troubleshooting_prompt_eval_cases(
 
     for case in cases:
         try:
-            result = agent.troubleshoot(case.root_field, case.graphql_call)
+            result = service.troubleshoot(case.root_field, case.graphql_call)
             checks = _score_troubleshooting(case, result, schema_file)
             results.append(PromptEvalResult("troubleshoot", case.name, _all_checks_passed(checks), checks))
         except Exception as exc:
@@ -174,7 +174,7 @@ def main() -> None:
         results.extend(run_sample_prompt_eval_cases(sample_service))
 
     if args.workflow in {"all", "troubleshoot"}:
-        troubleshooting_agent = TroubleshootingAgent(
+        troubleshooting_service = TroubleshootingService(
             settings=sample_service.settings,
             llm_client=sample_service.llm_client,
             llm_pre_warmer=sample_service.llm_pre_warmer,
@@ -182,7 +182,7 @@ def main() -> None:
         )
         results.extend(
             run_troubleshooting_prompt_eval_cases(
-                troubleshooting_agent,
+                troubleshooting_service,
                 sample_service.settings.schema_file,
             )
         )

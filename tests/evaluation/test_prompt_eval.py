@@ -41,7 +41,7 @@ class FakeSampleService:
         return self.sample
 
 
-class FakeTroubleshootingAgent:
+class FakeTroubleshootingService:
     def __init__(self, result: TroubleshootingResult) -> None:
         self.result = result
         self.calls: list[tuple[str, str]] = []
@@ -68,7 +68,7 @@ class FakeMainSampleService:
         self.rebuild_index = rebuild_index
 
 
-class FakeMainTroubleshootingAgent:
+class FakeMainTroubleshootingService:
     def __init__(self, **_: object) -> None:
         pass
 
@@ -140,7 +140,7 @@ query CountryQuery($code: ID!) {
 """,
             raw_response="raw",
         )
-        agent = FakeTroubleshootingAgent(result)
+        service = FakeTroubleshootingService(result)
         cases = [
             TroubleshootingPromptEvalCase(
                 name="field typo",
@@ -150,10 +150,10 @@ query CountryQuery($code: ID!) {
             )
         ]
 
-        results = run_troubleshooting_prompt_eval_cases(agent, self.schema_file, cases)
+        results = run_troubleshooting_prompt_eval_cases(service, self.schema_file, cases)
 
         self.assertTrue(results[0].passed)
-        self.assertEqual([("country", cases[0].graphql_call)], agent.calls)
+        self.assertEqual([("country", cases[0].graphql_call)], service.calls)
         self.assertIn("PASS suggestion validates against schema", results[0].checks)
 
     def test_main_prints_summary(self) -> None:
@@ -162,7 +162,7 @@ query CountryQuery($code: ID!) {
 
         with patch("sys.argv", ["prompt-eval", "--workflow", "sample"]):
             with patch("graphql_ai.evaluation.prompt_eval.SampleQueryService", FakeMainSampleService):
-                with patch("graphql_ai.evaluation.prompt_eval.TroubleshootingAgent", FakeMainTroubleshootingAgent):
+                with patch("graphql_ai.evaluation.prompt_eval.TroubleshootingService", FakeMainTroubleshootingService):
                     with patch("graphql_ai.evaluation.prompt_eval.run_sample_prompt_eval_cases", return_value=[result]):
                         with redirect_stdout(output):
                             prompt_eval.main()
