@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from graphql_ai.agents import GraphQLAIAgent
 from graphql_ai.api.routes import router
 from graphql_ai.core.config import get_settings
 from graphql_ai.core.responses import PrettyJSONResponse
@@ -35,8 +36,12 @@ async def lifespan(app: FastAPI):
         llm_pre_warmer=llm_pre_warmer,
         schema_context_provider=schema_context_provider,
     )
-    app.state.sample_service = sample_service
-    app.state.troubleshooting_service = troubleshooting_service
+    graphql_ai_agent = GraphQLAIAgent(
+        llm_client=llm_client,
+        sample_query_tool=sample_service,
+        troubleshooting_tool=troubleshooting_service,
+    )
+    app.state.graphql_ai_agent = graphql_ai_agent
     yield
 
 

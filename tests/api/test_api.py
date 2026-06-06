@@ -6,36 +6,11 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from graphql_ai.agents import AgentPlanningError, GraphQLAIGoal, GraphQLAIResult
 from graphql_ai.api.routes import router
 from graphql_ai.core.responses import PrettyJSONResponse
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
 from graphql_ai.main import create_app
-from graphql_ai.services.sample_query_service import InvalidRootFieldNameError
-
-
-class FakeSampleService:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.error = error
-        self.root_fields: list[str] = []
-        self.pre_warm_called = False
-        self.settings = object()
-        self.llm_client = object()
-        self.llm_pre_warmer = object()
-        self.schema_context_provider = object()
-
-    def generate(self, root_field: str) -> GeneratedGraphQLSample:
-        self.root_fields.append(root_field)
-        if self.error is not None:
-            raise self.error
-
-        return GeneratedGraphQLSample(
-            operation="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
-            variables={"code": "US"},
-            raw_response="raw",
-        )
-
-    def pre_warm(self) -> None:
-        self.pre_warm_called = True
 
 
 class FakeLLMPreWarmer:
@@ -48,159 +23,167 @@ class FakeLLMPreWarmer:
         self.pre_warm_called = True
 
 
-class FakeTroubleshootingService:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.error = error
-        self.requests: list[tuple[str, str]] = []
+class FakeSampleService:
+    def __init__(self) -> None:
+        self.pre_warm_called = False
 
-    def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
-        self.requests.append((root_field, graphql_call))
+    def pre_warm(self) -> None:
+        self.pre_warm_called = True
+
+
+class FakeTroubleshootingService:
+    pass
+
+
+class FakeGraphQLAIAgent:
+    def __init__(self, error: Exception | None = None, output: object | None = None) -> None:
+        self.error = error
+        self.output = output
+        self.goals: list[GraphQLAIGoal] = []
+
+    def run(self, goal: GraphQLAIGoal) -> GraphQLAIResult:
+        self.goals.append(goal)
         if self.error is not None:
             raise self.error
 
-        return TroubleshootingResult(
-            root_field=root_field,
-            status="invalid",
-            issues=["Cannot query field 'county' on type 'Query'. Did you mean 'country'?"],
-            detail=["Use the schema field `country` instead of `county`."],
-            suggestion="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
+        output = self.output or GeneratedGraphQLSample(
+            operation="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
+            variables={"code": "US"},
             raw_response="raw",
+        )
+        intent = "troubleshoot" if isinstance(output, TroubleshootingResult) else "generate_sample"
+        return GraphQLAIResult(
+            intent=intent,
+            goal=goal,
+            plan=(),
+            tool_calls=(),
+            observations=(),
+            output=output,
+            raw_plan_response="{}",
         )
 
 
-def build_test_client(
-    sample_service: FakeSampleService,
-    troubleshooting_service: FakeTroubleshootingService | None = None,
-) -> TestClient:
+def build_test_client(graphql_ai_agent: FakeGraphQLAIAgent) -> TestClient:
     app = FastAPI(default_response_class=PrettyJSONResponse)
     app.include_router(router)
-    app.state.sample_service = sample_service
-    app.state.troubleshooting_service = troubleshooting_service or FakeTroubleshootingService()
+    app.state.graphql_ai_agent = graphql_ai_agent
     return TestClient(app)
 
 
 class ApiTest(unittest.TestCase):
     def test_health_endpoint_returns_status(self) -> None:
-        client = build_test_client(FakeSampleService())
+        client = build_test_client(FakeGraphQLAIAgent())
 
         response = client.get("/health")
 
         self.assertEqual(200, response.status_code)
         self.assertEqual({"status": "ok"}, response.json())
 
-    def test_sample_endpoint_returns_operation_lines_and_variables(self) -> None:
-        service = FakeSampleService()
-        client = build_test_client(service)
-
-        response = client.get("/sample/country")
-
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(
-            {
-                "operation": [
-                    "query CountryQuery($code: ID!) {",
-                    "  country(code: $code) {",
-                    "    code",
-                    "  }",
-                    "}",
-                ],
-                "variables": {"code": "US"},
-            },
-            response.json(),
-        )
-        self.assertEqual(["country"], service.root_fields)
-
-    def test_sample_endpoint_returns_400_when_root_field_name_is_invalid(self) -> None:
-        client = build_test_client(FakeSampleService(InvalidRootFieldNameError("invalid root field")))
-
-        response = client.get("/sample/invalid")
-
-        self.assertEqual(400, response.status_code)
-        self.assertEqual({"detail": "invalid root field"}, response.json())
-
-    def test_sample_endpoint_returns_503_when_generation_fails(self) -> None:
-        client = build_test_client(FakeSampleService(RuntimeError("generation failed")))
-
-        response = client.get("/sample/country")
-
-        self.assertEqual(503, response.status_code)
-        self.assertEqual({"detail": "generation failed"}, response.json())
-
-    def test_troubleshoot_endpoint_returns_service_result(self) -> None:
-        troubleshooting_service = FakeTroubleshootingService()
-        client = build_test_client(FakeSampleService(), troubleshooting_service)
-        graphql_call = 'query CountyQuery($code: ID!) { county(code: $code) { code } }'
+    def test_assistant_returns_sample_result(self) -> None:
+        agent = FakeGraphQLAIAgent()
+        client = build_test_client(agent)
 
         response = client.post(
-            "/troubleshoot/county",
-            content=graphql_call,
-            headers={"Content-Type": "text/plain"},
-        )
-
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(
-            {
-                "root_field": "county",
-                "status": "invalid",
-                "issues": ["Cannot query field 'county' on type 'Query'. Did you mean 'country'?"],
-                "detail": ["Use the schema field `country` instead of `county`."],
-                "suggestion": [
-                    "query CountryQuery($code: ID!) {",
-                    "  country(code: $code) {",
-                    "    code",
-                    "  }",
-                    "}",
-                ],
-            },
-            response.json(),
-        )
-        self.assertEqual([("county", graphql_call)], troubleshooting_service.requests)
-
-    def test_troubleshoot_endpoint_accepts_postman_graphql_json_body(self) -> None:
-        troubleshooting_service = FakeTroubleshootingService()
-        client = build_test_client(FakeSampleService(), troubleshooting_service)
-        graphql_call = 'query CountyQuery($code: ID!) { county(code: $code) { code } }'
-
-        response = client.post(
-            "/troubleshoot/county",
+            "/assistant",
             json={
-                "query": graphql_call,
-                "variables": {"code": "US"},
+                "goal": "Generate a sample query",
+                "root_field": "country",
             },
         )
 
         self.assertEqual(200, response.status_code)
-        self.assertEqual("invalid", response.json()["status"])
-        self.assertEqual([("county", graphql_call)], troubleshooting_service.requests)
-
-    def test_troubleshoot_endpoint_rejects_json_body_without_query(self) -> None:
-        client = build_test_client(FakeSampleService(), FakeTroubleshootingService())
-
-        response = client.post("/troubleshoot/country", json={"variables": {"code": "US"}})
-
-        self.assertEqual(400, response.status_code)
         self.assertEqual(
-            {"detail": "Request JSON body must include a string `query` field."},
+            {
+                "intent": "generate_sample",
+                "plan": [],
+                "tool_calls": [],
+                "observations": [],
+                "result": {
+                    "type": "sample",
+                    "operation": [
+                        "query CountryQuery($code: ID!) {",
+                        "  country(code: $code) {",
+                        "    code",
+                        "  }",
+                        "}",
+                    ],
+                    "variables": {"code": "US"},
+                },
+            },
             response.json(),
         )
+        self.assertEqual([GraphQLAIGoal(goal="Generate a sample query", root_field="country")], agent.goals)
 
-    def test_troubleshoot_endpoint_returns_400_for_invalid_root_field(self) -> None:
+    def test_assistant_returns_troubleshooting_result(self) -> None:
+        graphql_call = "query CountryQuery($code: ID!) { county(code: $code) { code } }"
+        troubleshooting_result = TroubleshootingResult(
+            root_field="country",
+            status="invalid",
+            issues=["Cannot query field 'county' on type 'Query'. Did you mean 'country'?"],
+            detail=["Use the schema field `country` instead of `county`."],
+            suggestion="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
+            raw_response="raw",
+        )
+        agent = FakeGraphQLAIAgent(output=troubleshooting_result)
+        client = build_test_client(agent)
+
+        response = client.post(
+            "/assistant",
+            json={
+                "goal": "Something is wrong with this query",
+                "root_field": "country",
+                "graphql_call": graphql_call,
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("troubleshoot", response.json()["intent"])
+        self.assertEqual("troubleshooting", response.json()["result"]["type"])
+        self.assertEqual(
+            [GraphQLAIGoal(goal="Something is wrong with this query", root_field="country", graphql_call=graphql_call)],
+            agent.goals,
+        )
+
+    def test_assistant_returns_400_for_agent_planning_error(self) -> None:
         client = build_test_client(
-            FakeSampleService(),
-            FakeTroubleshootingService(InvalidRootFieldNameError("invalid root field")),
+            FakeGraphQLAIAgent(
+                error=AgentPlanningError(
+                    "Troubleshooting requires `graphql_call`. Include the GraphQL operation in the request body."
+                )
+            )
         )
 
         response = client.post(
-            "/troubleshoot/invalid",
-            content="query CountryQuery { country(code: \"US\") { code } }",
-            headers={"Content-Type": "text/plain"},
+            "/assistant",
+            json={
+                "goal": "Something is wrong with this query",
+                "root_field": "country",
+            },
         )
 
         self.assertEqual(400, response.status_code)
-        self.assertEqual({"detail": "invalid root field"}, response.json())
+        self.assertEqual(
+            {
+                "detail": (
+                    "Troubleshooting requires `graphql_call`. "
+                    "Include the GraphQL operation in the request body."
+                )
+            },
+            response.json(),
+        )
 
-    def test_create_app_lifespan_constructs_and_prewarm_service(self) -> None:
-        fake_service = FakeSampleService()
+    def test_sample_and_troubleshoot_routes_are_removed(self) -> None:
+        client = build_test_client(FakeGraphQLAIAgent())
+
+        sample_response = client.get("/sample/country")
+        troubleshoot_response = client.post("/troubleshoot/country", content="query CountryQuery { country { code } }")
+
+        self.assertEqual(404, sample_response.status_code)
+        self.assertEqual(404, troubleshoot_response.status_code)
+
+    def test_create_app_lifespan_constructs_services_and_assistant_agent(self) -> None:
+        sample_service = FakeSampleService()
+        troubleshooting_service = FakeTroubleshootingService()
         settings = object()
         schema_context_provider = object()
         llm_client = object()
@@ -211,8 +194,12 @@ class ApiTest(unittest.TestCase):
             patch("graphql_ai.main.SchemaVectorStore", return_value=schema_context_provider) as vector_store_class,
             patch("graphql_ai.main.build_llm_client", return_value=llm_client) as llm_factory,
             patch("graphql_ai.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
-            patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class,
-            patch("graphql_ai.main.TroubleshootingService") as troubleshooting_service_class,
+            patch("graphql_ai.main.SampleQueryService", return_value=sample_service) as sample_service_class,
+            patch(
+                "graphql_ai.main.TroubleshootingService",
+                return_value=troubleshooting_service,
+            ) as troubleshooting_service_class,
+            patch("graphql_ai.main.GraphQLAIAgent") as agent_class,
         ):
             app = create_app()
             with TestClient(app) as client:
@@ -223,7 +210,7 @@ class ApiTest(unittest.TestCase):
         llm_factory.assert_called_once_with(settings)
         pre_warmer_class.assert_called_once_with(settings, llm_client)
         self.assertTrue(pre_warmer.pre_warm_called)
-        service_class.assert_called_once_with(
+        sample_service_class.assert_called_once_with(
             settings=settings,
             llm_client=llm_client,
             llm_pre_warmer=pre_warmer,
@@ -235,26 +222,12 @@ class ApiTest(unittest.TestCase):
             llm_pre_warmer=pre_warmer,
             schema_context_provider=schema_context_provider,
         )
-        self.assertFalse(fake_service.pre_warm_called)
-
-    def test_create_app_uses_startup_service_for_sample_request(self) -> None:
-        fake_service = FakeSampleService()
-
-        with (
-            patch("graphql_ai.main.get_settings", return_value=object()),
-            patch("graphql_ai.main.SchemaVectorStore", return_value=object()),
-            patch("graphql_ai.main.build_llm_client", return_value=object()),
-            patch("graphql_ai.main.LLMPreWarmer", return_value=FakeLLMPreWarmer(object(), object())),
-            patch("graphql_ai.main.SampleQueryService", return_value=fake_service) as service_class,
-            patch("graphql_ai.main.TroubleshootingService"),
-        ):
-            app = create_app()
-            with TestClient(app) as client:
-                response = client.get("/sample/country")
-
-        self.assertEqual(200, response.status_code)
-        service_class.assert_called_once()
-        self.assertEqual(["country"], fake_service.root_fields)
+        agent_class.assert_called_once_with(
+            llm_client=llm_client,
+            sample_query_tool=sample_service,
+            troubleshooting_tool=troubleshooting_service,
+        )
+        self.assertFalse(sample_service.pre_warm_called)
 
 
 if __name__ == "__main__":

@@ -1,31 +1,58 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
-class SampleQueryResponse(BaseModel):
-    """HTTP response for generated sample GraphQL operations."""
+class AssistantRequest(BaseModel):
+    """Natural-language request for the GraphQL AI assistant."""
 
-    operation: list[str] = Field(description="Generated GraphQL operation formatted as lines.")
-    variables: dict[str, Any] = Field(default_factory=dict, description="Variables for the operation.")
-
-
-class TroubleshootingResponse(BaseModel):
-    """HTTP response for the GraphQL troubleshooting service."""
-
-    root_field: str = Field(description="GraphQL Query or Mutation field name being troubleshot.")
-    status: str = Field(description="Validation status for the submitted GraphQL operation.")
-    issues: list[str] = Field(default_factory=list, description="Syntax or schema issues found by tools.")
-    detail: list[str] = Field(default_factory=list, description="Model-generated troubleshooting guidance lines.")
-    suggestion: list[str] = Field(
-        default_factory=list,
-        description="Suggested GraphQL operation formatted as lines.",
+    goal: str = Field(min_length=1, description="Natural-language assistant goal.")
+    root_field: str = Field(
+        min_length=1,
+        description="GraphQL Query or Mutation root field the request focuses on.",
     )
+    graphql_call: str | None = Field(
+        default=None,
+        description="GraphQL operation to troubleshoot when the assistant chooses troubleshooting.",
+    )
+
+
+class AgentPlanStepResponse(BaseModel):
+    """HTTP representation of one assistant plan step."""
+
+    name: str
+    tool_name: str
+    reason: str
+
+
+class ToolCallResponse(BaseModel):
+    """HTTP representation of one assistant tool call."""
+
+    tool_name: str
+    inputs: dict[str, str]
+
+
+class ToolObservationResponse(BaseModel):
+    """HTTP representation of one assistant tool observation."""
+
+    tool_name: str
+    output_type: str
+    summary: str
+
+
+class AssistantResultResponse(BaseModel):
+    """HTTP response for the GraphQL AI assistant."""
+
+    intent: str
+    plan: list[AgentPlanStepResponse]
+    tool_calls: list[ToolCallResponse]
+    observations: list[ToolObservationResponse]
+    result: dict[str, Any]
 
 
 class HealthResponse(BaseModel):
     """HTTP response for the health endpoint."""
 
-    status: str
+    status: Literal["ok"]

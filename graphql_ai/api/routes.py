@@ -1,26 +1,26 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, HTTPException, Request
 
-from graphql_ai.api.schemas import HealthResponse, SampleQueryResponse, TroubleshootingResponse
-from graphql_ai.services.sample_query_service import (
-    InvalidRootFieldNameError,
-    SampleQueryService,
+from graphql_ai.agents import AgentPlanningError, GraphQLAIAgent, GraphQLAIGoal
+from graphql_ai.api.schemas import (
+    AgentPlanStepResponse,
+    AssistantRequest,
+    AssistantResultResponse,
+    HealthResponse,
+    ToolCallResponse,
+    ToolObservationResponse,
 )
-from graphql_ai.services.troubleshooting_service import TroubleshootingService
+from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_ai.services.sample_query_service import InvalidRootFieldNameError
 
 
 router = APIRouter()
 
 
-def get_sample_query_service(request: Request) -> SampleQueryService:
-    """Return the application-scoped RAG and inference sample-query service."""
-    return request.app.state.sample_service
-
-
-def get_troubleshooting_service(request: Request) -> TroubleshootingService:
-    """Return the application-scoped GraphQL troubleshooting service."""
-    return request.app.state.troubleshooting_service
+def get_graphql_ai_agent(request: Request) -> GraphQLAIAgent:
+    """Return the application-scoped GraphQL AI assistant agent."""
+    return request.app.state.graphql_ai_agent
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -29,93 +29,71 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@router.get("/sample/{root_field}", response_model=SampleQueryResponse)
-def generate_sample_query(
-    request: Request,
-    root_field: str = Path(
-        min_length=1,
-        description=(
-            "GraphQL Query or Mutation field name to generate a sample for, "
-            "for example: country"
-        ),
-    ),
-) -> SampleQueryResponse:
-    """Generate a sample GraphQL operation for a Query or Mutation field.
+@router.post("/assistant", response_model=AssistantResultResponse)
+def run_assistant(request: Request, assistant_request: AssistantRequest) -> AssistantResultResponse:
+    """Run the natural-language GraphQL AI assistant.
 
-    The route stays thin on purpose: it reads the `root_field` path value,
-    delegates RAG, prompt construction, inference, and guardrails to
-    `SampleQueryService`, then translates the domain result into the HTTP
-    response shape.
+    The request provides a natural-language goal and a required GraphQL root
+    field. The assistant uses an LLM planner to choose a service tool, validates
+    the plan, executes the tool, and returns the plan, tool calls, observations,
+    and final domain result.
     """
     try:
-        sample_service = get_sample_query_service(request)
-        sample = sample_service.generate(root_field)
-    except InvalidRootFieldNameError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    return SampleQueryResponse(
-        operation=sample.operation.splitlines(),
-        variables=sample.variables,
-    )
-
-
-@router.post("/troubleshoot/{root_field}", response_model=TroubleshootingResponse)
-async def troubleshoot_graphql_call(
-    request: Request,
-    root_field: str = Path(
-        min_length=1,
-        description=(
-            "GraphQL Query or Mutation field name to troubleshoot, "
-            "for example: country"
-        ),
-    ),
-) -> TroubleshootingResponse:
-    """Troubleshoot a submitted GraphQL call with validation, RAG, inference, and guardrails.
-
-    The endpoint accepts either a plain-text GraphQL operation or Postman's
-    GraphQL JSON body format: `{"query": "...", "variables": {...}}`.
-    Variables are accepted for client compatibility; troubleshooting uses the
-    query text. The route delegates validation, schema retrieval, inference,
-    and suggested-operation guardrails to `TroubleshootingService`.
-    """
-    try:
-        graphql_call = await read_troubleshooting_graphql_call(request)
-        troubleshooting_service = get_troubleshooting_service(request)
-        result = troubleshooting_service.troubleshoot(root_field, graphql_call)
-    except InvalidRootFieldNameError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    return TroubleshootingResponse(
-        root_field=result.root_field,
-        status=result.status,
-        issues=result.issues,
-        detail=result.detail,
-        suggestion=result.suggestion.splitlines() if result.suggestion else [],
-    )
-
-
-async def read_troubleshooting_graphql_call(request: Request) -> str:
-    """Read a GraphQL operation from text/plain or Postman GraphQL JSON bodies."""
-    content_type = request.headers.get("content-type", "").lower()
-    if "application/json" in content_type:
-        try:
-            payload = await request.json()
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Request JSON body must be valid JSON.") from exc
-
-        if not isinstance(payload, dict) or not isinstance(payload.get("query"), str):
-            raise HTTPException(
-                status_code=400,
-                detail="Request JSON body must include a string `query` field.",
+        agent = get_graphql_ai_agent(request)
+        agent_result = agent.run(
+            GraphQLAIGoal(
+                goal=assistant_request.goal,
+                root_field=assistant_request.root_field,
+                graphql_call=assistant_request.graphql_call,
             )
+        )
+    except (AgentPlanningError, InvalidRootFieldNameError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-        return payload["query"]
+    return AssistantResultResponse(
+        intent=agent_result.intent,
+        plan=[
+            AgentPlanStepResponse(
+                name=step.name,
+                tool_name=step.tool_name,
+                reason=step.reason,
+            )
+            for step in agent_result.plan
+        ],
+        tool_calls=[
+            ToolCallResponse(
+                tool_name=tool_call.tool_name,
+                inputs=tool_call.inputs,
+            )
+            for tool_call in agent_result.tool_calls
+        ],
+        observations=[
+            ToolObservationResponse(
+                tool_name=observation.tool_name,
+                output_type=observation.output_type,
+                summary=observation.summary,
+            )
+            for observation in agent_result.observations
+        ],
+        result=_format_assistant_result(agent_result.output),
+    )
 
-    try:
-        return (await request.body()).decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=400, detail="Request body must be valid UTF-8 text.") from exc
+
+def _format_assistant_result(output: GeneratedGraphQLSample | TroubleshootingResult) -> dict[str, object]:
+    if isinstance(output, GeneratedGraphQLSample):
+        return {
+            "type": "sample",
+            "operation": output.operation.splitlines(),
+            "variables": output.variables,
+        }
+
+    return {
+        "type": "troubleshooting",
+        "root_field": output.root_field,
+        "status": output.status,
+        "issues": output.issues,
+        "detail": output.detail,
+        "suggestion": output.suggestion.splitlines() if output.suggestion else [],
+    }
