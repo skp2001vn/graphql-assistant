@@ -13,33 +13,17 @@ from graphql_ai.rag.vector_store import SchemaVectorStore
 from graphql_ai.services.sample_query_service import InvalidRootFieldNameError, validate_root_field_request
 
 
-TROUBLESHOOTING_PLAN = [
-    "Validate input",
-    "Parse and validate GraphQL",
-    "Retrieve schema context",
-    "Generate troubleshooting guidance",
-    "Validate corrected operation",
-]
-
 TROUBLESHOOTING_SYSTEM_PROMPT = (
-    "You are a GraphQL troubleshooting agent. Your goal is to explain what is wrong "
-    "with a user's GraphQL operation and suggest a corrected operation. Use the tool "
-    "observations and schema context. Tool observations are authoritative: do not add "
-    "issues that are not listed in the validation issues. Do not invent schema fields. "
-    "Return exactly two labeled fenced code blocks: DETAIL and SUGGESTION. Both blocks "
-    "are required. DETAIL must contain only 1 to 3 short explanation lines, no JSON, "
-    "no Markdown headings, no bullets, and no GraphQL code. SUGGESTION must contain the "
-    "full corrected GraphQL operation, not only the changed field. Do not repeat validation "
-    "issues verbatim. A 'Cannot query field' validation issue refers to a selected response "
-    "field, not an argument. For syntax errors, preserve submitted field names and fix only "
-    "GraphQL structure such as braces, parentheses, colons, commas, and variable syntax. "
-    "Rename a selected field only when a validation issue explicitly says that field is invalid."
+    "You troubleshoot GraphQL operations using only the provided validation issues and schema context. "
+    "Do not invent schema fields, arguments, types, or extra issues. Preserve submitted fields unless an "
+    "issue explicitly says they are invalid. For syntax errors, fix only GraphQL structure. Return only "
+    "DETAIL and SUGGESTION fenced code blocks. DETAIL must be 1 to 3 short explanation lines. SUGGESTION "
+    "must be the full corrected GraphQL operation."
 )
 
-TROUBLESHOOTING_PROMPT_TEMPLATE = """Output format. Replace the placeholder content with the actual correction. Do not copy placeholder text.
-DETAIL:
+TROUBLESHOOTING_PROMPT_TEMPLATE = """DETAIL:
 ```text
-One to three short lines explaining the actual correction.
+1 to 3 short lines explaining the correction.
 ```
 
 SUGGESTION:
@@ -47,34 +31,26 @@ SUGGESTION:
 Full corrected GraphQL operation.
 ```
 
-Detail block rules:
-- Return only natural-language explanation lines.
-- Do not include headings, bullets, numbering, JSON, or GraphQL code in the detail block.
-- If an issue says "Did you mean ...", use that as the fix.
-- Explain changes to the submitted operation, not changes to the schema.
-- Return nothing outside DETAIL and SUGGESTION.
-
-Suggestion rules:
-- Preserve submitted fields that are not named in a validation issue.
-- For syntax errors, fix only GraphQL structure such as braces, parentheses, colons, commas, and variable syntax.
-- Rename a selected field only when a validation issue explicitly says that field is invalid.
-- Do not replace a nested object field with a root Query field just because the names are similar.
-
-Plan:
-{plan}
+Correction rules:
+- Use "Did you mean ..." from validation issues when available.
+- Explain changes to the operation, not the schema.
+- Do not remove valid submitted fields.
+- Do not treat selected response fields as arguments.
+- Do not replace a nested object field with a similar root Query field.
 
 Root field:
 {root_field}
 
-Schema context:
-{schema_context}
-
 Validation issues:
 {issues}
 
-User GraphQL operation:
+Schema context:
+{schema_context}
+
+Submitted operation:
 {graphql_call}
 """
+
 
 CODE_BLOCK_RE = re.compile(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", flags=re.DOTALL)
 
@@ -89,8 +65,8 @@ def validate_troubleshooting_input(root_field: str, graphql_call: str) -> tuple[
     return normalized_root_field, normalized_graphql_call
 
 
-class GraphQLValidationTool:
-    """Tool that captures GraphQL syntax and schema validation issues.
+class GraphQLValidator:
+    """Validator that captures GraphQL syntax and schema issues.
 
     The GraphQL schema is parsed once when the tool is created because the
     local SDL file changes rarely and validation may run multiple times per
@@ -98,14 +74,14 @@ class GraphQLValidationTool:
     """
 
     def __init__(self, schema_file: Any) -> None:
-        """Create a validation tool with a cached parsed schema."""
+        """Create a validator with a cached parsed schema."""
         self.schema_file = schema_file
         self.schema = self._build_schema()
 
     def validate(self, graphql_call: str) -> list[str]:
         """Return GraphQL syntax and schema issues for a submitted operation.
 
-        This deterministic tool runs before any model inference. Syntax errors
+        This deterministic validator runs before any model inference. Syntax errors
         come from GraphQL parsing, while schema errors come from validating the
         parsed document against the local SDL. Each issue keeps line and column
         details so the model can explain the correction in user-friendly terms.
@@ -131,11 +107,11 @@ class GraphQLValidationTool:
         return build_schema(self.schema_file.read_text(encoding="utf-8"))
 
 
-class SchemaRetrievalTool:
-    """Tool that retrieves and caches RAG schema context for troubleshooting."""
+class SchemaContextRetriever:
+    """Retriever that caches RAG schema context for troubleshooting."""
 
     def __init__(self, schema_context_provider: SchemaContextProvider) -> None:
-        """Create a retrieval tool with an in-memory cache per root field."""
+        """Create a retriever with an in-memory cache per root field."""
         self.schema_context_provider = schema_context_provider
         self._cache: dict[str, str] = {}
 
@@ -143,9 +119,9 @@ class SchemaRetrievalTool:
         """Retrieve RAG schema context for the root field being troubleshot.
 
         The troubleshooting prompt does not receive the whole schema. Instead,
-        this tool asks the configured schema-context provider for chunks related
+        this retriever asks the configured schema-context provider for chunks related
         to the requested Query or Mutation field and caches that context for the
-        lifetime of this agent instance.
+        lifetime of this instance.
         """
         if root_field not in self._cache:
             self._cache[root_field] = self.schema_context_provider.retrieve_schema_context(
@@ -156,13 +132,12 @@ class SchemaRetrievalTool:
 
 
 class TroubleshootingAgent:
-    """Tool-using agent for troubleshooting user-provided GraphQL operations.
+    """Service that troubleshoots user-provided GraphQL operations.
 
-    The agent has a goal, an explicit plan, and a small set of deterministic
-    tools. It first runs input guardrails, then parses and validates the user's
-    GraphQL operation, retrieves schema context with RAG, and finally calls the
-    LLM for inference. The LLM suggestion is treated as a candidate answer:
-    the corrected operation is validated before it is returned.
+    The service runs deterministic input guardrails, validates the user's
+    GraphQL operation, retrieves focused schema context with RAG, and asks the
+    LLM only to explain the issue and propose a candidate fix. The suggested
+    operation is validated before it is returned.
     """
 
     def __init__(
@@ -172,39 +147,38 @@ class TroubleshootingAgent:
         schema_context_provider: SchemaContextProvider | None = None,
         allow_downloads: bool = False,
     ) -> None:
-        """Create a troubleshooting agent with injectable tools and inference dependencies."""
+        """Create a troubleshooting service with injectable dependencies."""
         self.settings = settings or get_settings()
         self.llm_client = llm_client or self._build_default_llm_client()
         self.schema_context_provider = schema_context_provider or SchemaVectorStore(
             settings=self.settings,
             allow_downloads=allow_downloads,
         )
-        self.validation_tool = GraphQLValidationTool(self.settings.schema_file)
-        self.retrieval_tool = SchemaRetrievalTool(self.schema_context_provider)
+        self.validator = GraphQLValidator(self.settings.schema_file)
+        self.schema_context_retriever = SchemaContextRetriever(self.schema_context_provider)
         self._inference_lock = Lock()
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
         """Troubleshoot a user-submitted GraphQL operation.
 
-        This is the main workflow behind the troubleshoot API. It follows the
-        agent plan in a small, explicit order:
+        This is the main workflow behind the troubleshoot service:
 
         1. Validate and normalize the root-field path value and request body.
-        2. Run the GraphQL validation tool before calling the model.
+        2. Run GraphQL validation before calling the model.
         3. Return immediately when the submitted operation is already valid.
         4. Retrieve focused schema context for the requested root field.
-        5. Build a prompt from the plan, tool observations, schema context, and
+        5. Build a prompt from validation issues, schema context, and the
            submitted operation.
         6. Ask the configured LLM provider for detail text and a candidate fix.
         7. Clean the model detail so API users see explanation, not raw errors.
         8. Validate the suggested operation before returning it.
 
-        Deterministic tool output stays authoritative. The model can explain and
+        Deterministic validation output stays authoritative. The model can explain and
         propose a correction, but GraphQL-core validation decides whether the
         original call is invalid and whether the suggestion is safe to return.
         """
         normalized_root_field, normalized_graphql_call = validate_troubleshooting_input(root_field, graphql_call)
-        validation_issues = self.validation_tool.validate(normalized_graphql_call)
+        validation_issues = self.validator.validate(normalized_graphql_call)
         if not validation_issues:
             return TroubleshootingResult(
                 root_field=normalized_root_field,
@@ -215,7 +189,7 @@ class TroubleshootingAgent:
                 raw_response="",
             )
 
-        schema_context = self.retrieval_tool.retrieve(normalized_root_field)
+        schema_context = self.schema_context_retriever.retrieve(normalized_root_field)
 
         with self._inference_lock:
             raw_response = self.llm_client.generate(
@@ -232,7 +206,7 @@ class TroubleshootingAgent:
 
         corrected_issues = []
         if suggested_operation:
-            corrected_issues = self.validation_tool.validate(suggested_operation)
+            corrected_issues = self.validator.validate(suggested_operation)
             if corrected_issues:
                 suggested_operation = ""
 
@@ -257,7 +231,6 @@ class TroubleshootingAgent:
         issues: list[str],
     ) -> str:
         user_prompt = TROUBLESHOOTING_PROMPT_TEMPLATE.format(
-            plan="\n".join(f"- {step}" for step in TROUBLESHOOTING_PLAN),
             root_field=root_field,
             schema_context=schema_context,
             issues="\n".join(f"- {issue}" for issue in issues) if issues else "- No validation issues found.",
@@ -270,7 +243,7 @@ class TroubleshootingAgent:
 
 
 def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:
-    """Parse agent inference into detail text and a suggested operation.
+    """Parse inference into detail text and a suggested operation.
 
     The troubleshooting prompt asks for labeled `DETAIL` and `SUGGESTION` code
     blocks. This parser prefers those labels, but also supports simple fenced

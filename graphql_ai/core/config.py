@@ -44,7 +44,7 @@ class AppSettings:
     ollama_think: bool = field(default_factory=lambda: _read_bool_env("OLLAMA_THINK"))
     openai_api_key: str | None = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     openai_url: str = field(default_factory=lambda: os.getenv("OPENAI_URL", "https://api.openai.com/v1/responses"))
-    openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5.2"))
+    openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5.4-mini"))
     openai_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
     openai_max_output_tokens: int = field(default_factory=lambda: int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "600")))
     inference_cache_enabled: bool = field(default_factory=lambda: _read_bool_env("INFERENCE_CACHE_ENABLED", True))
