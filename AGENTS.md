@@ -63,7 +63,12 @@ tests/
 .venv/bin/python -m unittest discover -s tests
 ```
 
-## Git Hygiene
+```md
+Smoke test API changes when relevant:
 
-- Keep changes scoped.
-- Do not commit generated artifacts.
+```bash
+uvicorn graphql_ai.main:app --host 127.0.0.1 --port 8082
+curl http://127.0.0.1:8082/sample/country
+curl -X POST http://127.0.0.1:8082/troubleshoot/country
+```
+```
