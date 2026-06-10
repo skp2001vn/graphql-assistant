@@ -2,49 +2,30 @@
 
 This repository is a GraphQL AI examples project. The current implementation uses RAG to generate sample GraphQL operations and a tool-using agent to troubleshoot GraphQL calls. Future enhancements may add inference optimization, model routing, prompt evaluation, or other approaches.
 
-## AI Concepts
+## AI Terminology
 
-Use consistent AI vocabulary in code comments, docstrings, and docs:
+Use consistent terminology throughout the project:
 
-- RAG: schema-context retrieval before generation.
-- Embeddings: vector representations of GraphQL SDL chunks.
-- Vector store: Chroma persistence for schema embeddings.
-- Retrieval: selecting relevant schema chunks for a requested root field.
-- Prompt construction: combining system prompt, retrieved context, and root-field request.
-- Prompt compression: compacting schema context before inference.
-- Inference: model generation through an LLM provider such as Ollama.
-- Inference cache: prompt/response reuse keyed by prompt and model settings.
-- Model pre-warm: loading the local model during API startup.
-- Guardrails: validation and output checks before returning model output.
-- Agent: workflow with a goal, plan, tools, tool observations, and inference.
-- Plan: ordered steps an agent follows to complete a goal.
-- Tools: deterministic functions an agent calls, such as validation or retrieval.
-- Tool observations: tool outputs passed into prompt construction and inference.
-- Model routing and prompt evaluation: future extension areas.
+- RAG: retrieve schema context before generation.
+- Retrieval: select relevant schema chunks for a request.
+- Embeddings / Vector Store: schema indexing and search.
+- Inference: LLM generation.
+- Guardrails: validation and output checks.
+- Agent: goal-driven workflow that may use tools.
 
 ## Architecture
 
-Keep code organized by responsibility:
-
 ```text
 graphql_ai/
-  agents/   Tool-using agent workflows
-  api/       FastAPI routes and HTTP schemas
-  core/      settings, protocols, shared framework utilities
-  domain/    domain dataclasses and business objects
-  llm/       LLM client protocols and provider implementations
-  rag/       RAG-specific schema indexing and retrieval
-  services/  business use cases and orchestration
-  cli.py     command-line entry point
-  main.py    FastAPI app factory
+  agents/    agent workflows
+  api/       FastAPI routes and schemas
+  core/      shared interfaces and settings
+  domain/    domain models
+  llm/       LLM providers and caching
+  rag/       schema retrieval and indexing
+  services/  business workflows
 tests/
-  agents/   tests for agent workflows, plans, tools, and observations
-  api/       tests for API routes and HTTP behavior
-  core/      tests for settings, protocols, and shared framework utilities
-  domain/    tests for domain dataclasses and business objects
-  llm/       tests for LLM clients and caching
-  rag/       tests for schema chunking, indexing, and retrieval helpers
-  services/  tests for business use cases and orchestration
+  mirrors the production package layout
 ```
 
 Do not add a generic `utils` module or broad helper class unless the code is genuinely reused across multiple packages. Keep single-use helpers close to the service or module that owns the behavior.
@@ -52,13 +33,13 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 ## Layering Rules
 
 - API routes must stay thin: validate/translate HTTP input, call a service, and return a Pydantic response.
-- Services own business logic and orchestration. They may depend on protocols from `core/`, clients from `llm/`, and implementation modules such as `rag/`.
+- Services own business logic and orchestration.
 - Domain models must not depend on FastAPI, Chroma, Ollama, or framework code.
-- Agent workflows should stay in `graphql_ai/agents` and keep the goal, plan, tools, tool observations, and inference path explicit.
+- Agent workflows belong in `graphql_ai/agents`.
 - RAG code must stay in `graphql_ai/rag`. Do not make RAG the identity of the whole application.
-- Future approaches such as inference optimization should be added as normal packages when implemented, not pre-created speculatively.
+- Do not create packages for features that do not exist yet.
 - LLM providers should implement the `LLMClient` protocol instead of being called directly from routes.
-- Schema context providers should implement `SchemaContextProvider` so services can swap RAG for another approach later.
+- Prefer interfaces when multiple implementations are expected.
 
 ## Naming Conventions
 
@@ -80,14 +61,10 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 
 ## Documentation
 
-- Add docstrings for public classes and public methods.
-- Public service classes should describe the business workflow they coordinate.
-- When a service uses RAG, mention that RAG is the current schema-context approach, not the only possible approach.
-- When a service applies validation, safety checks, or output filtering, describe the guardrail behavior clearly.
-- When a service calls an LLM, describe the inference path and any inference cache behavior.
-- When an agent uses planning or tools, mention the goal, plan, tools, tool observations, and inference path.
-- When a module uses embeddings, retrieval, vector stores, or prompt compression, use those terms directly.
-- Keep private helper docstrings optional; add them only when the behavior is not obvious.
+- Add docstrings for public classes and methods.
+- Describe business workflows in service classes.
+- Keep terminology consistent with the AI Terminology section.
+- Keep private helper documentation optional.
 
 ## Testing
 
@@ -99,41 +76,6 @@ Do not add a generic `utils` module or broad helper class unless the code is gen
 - Integration tests should cover application boundaries, such as FastAPI routes plus service wiring, while still replacing slow external AI dependencies with fakes.
 - Live integration tests against real local infrastructure are optional and must be guarded behind an explicit environment variable such as `RUN_LIVE_INTEGRATION_TESTS=true`.
 - When adding behavior, add or update the closest unit or integration test in the matching mirrored folder.
-
-## RAG And Schema Handling
-
-- `resources/schema.graphql` is the default schema and is expected to change rarely.
-- Direct sample generation should convert the root field into a focused prompt request, then use RAG, inference, and guardrails. In this project, root field means the schema Query or Mutation field name the user wants to generate, such as `country`.
-- GraphQL troubleshooting should use the troubleshooting agent plan, deterministic tools, RAG schema retrieval, inference, and corrected-operation guardrails.
-- RAG code should keep the flow clear: schema chunking, embeddings, vector-store indexing, retrieval, and schema-context formatting.
-- Preserve Chroma index caching; avoid rebuilding the index per request.
-- If schema indexing behavior changes, keep cache invalidation based on schema content and embedding model.
-- Do not hard-code schema-specific fields outside a default example request unless the user explicitly asks for a schema-specific demo.
-
-## Guardrails
-
-- Validate generated GraphQL operations with GraphQL-core before returning them.
-- Keep output guardrails in the service layer, not in API route handlers.
-- Guardrails should reject malformed operations, invented fields, missing required arguments, invalid nested selections, and variable type mismatches.
-- Keep variable-usage validation so Variables JSON cannot drift away from the generated operation.
-- Keep guardrail errors clear enough to explain why model output was rejected.
-- When changing guardrail behavior, add focused tests in `tests/services/` or the closest matching mirrored folder.
-
-## Inference Optimization
-
-- Keep inference optimization in the LLM or service layer, not in API route handlers.
-- Keep prompt construction and prompt compression explicit because they directly affect inference latency and output quality.
-- Preserve the local prompt/response cache unless the change explicitly replaces it.
-- Preserve schema-context caching unless the change explicitly replaces request retrieval behavior.
-- Prompt cache keys must include the full prompt plus model settings that affect output.
-- Prompt cache namespaces must include `PROMPT_CONTRACT_VERSION` so old generated responses can be bypassed after prompt or guardrail changes.
-- Prompt cache namespaces must include generation controls such as temperature, top-p, top-k, and seed.
-- Schema-context cache keys must include the root-field request and schema fingerprint.
-- Schema-context cache keys must include retrieval settings such as top-k.
-- Keep prompt compression enabled by default for local inference; include compression settings in cache keys.
-- Keep model pre-warming in the AI service path, never in route handlers.
-- Store runtime cache artifacts under ignored paths such as `.cache/`.
-- Prefer small composable wrappers, such as cached LLM clients, over special cases inside business methods.
 
 ## Verification
 
