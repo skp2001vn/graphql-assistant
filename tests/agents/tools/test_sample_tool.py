@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 from graphql_ai.core.config import AppSettings
-from graphql_ai.agents.tools.sample_query_tool import (
+from graphql_ai.agents.tools.sample_tool import (
     InvalidRootFieldNameError,
-    SampleQueryTool,
+    SampleTool,
     parse_generated_sample,
     validate_operation_against_schema,
     validate_root_field_request,
@@ -69,7 +69,7 @@ class FakeSchemaContextProvider:
         return self.context
 
 
-class SampleQueryToolTest(unittest.TestCase):
+class SampleToolTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.schema_file = Path(self.temp_dir.name) / "schema.graphql"
@@ -241,7 +241,7 @@ query ContinentQuery($code: ID!) {
 """
         llm_client = FakeLLMClient(llm_response)
         schema_context_provider = FakeSchemaContextProvider()
-        tool = SampleQueryTool(
+        tool = SampleTool(
             settings=self.settings,
             llm_client=llm_client,
             schema_context_provider=schema_context_provider,
@@ -285,7 +285,7 @@ query CountriesQuery {
 """
         llm_client = FakeLLMClient(llm_response)
         schema_context_provider = FakeSchemaContextProvider()
-        tool = SampleQueryTool(
+        tool = SampleTool(
             settings=self.settings,
             llm_client=llm_client,
             schema_context_provider=schema_context_provider,
@@ -318,7 +318,7 @@ query ContinentQuery($code: ID!) {
 """
         llm_client = FakeLLMClient(llm_response)
         schema_context_provider = FakeSchemaContextProvider()
-        tool = SampleQueryTool(
+        tool = SampleTool(
             settings=self.settings,
             llm_client=llm_client,
             schema_context_provider=schema_context_provider,
@@ -332,7 +332,7 @@ query ContinentQuery($code: ID!) {
     def test_generate_rejects_blank_root_field(self) -> None:
         llm_client = FakeLLMClient("unused")
         schema_context_provider = FakeSchemaContextProvider()
-        tool = SampleQueryTool(
+        tool = SampleTool(
             settings=self.settings,
             llm_client=llm_client,
             schema_context_provider=schema_context_provider,
@@ -347,7 +347,7 @@ query ContinentQuery($code: ID!) {
     def test_generate_rejects_malformed_root_field_before_rag_and_inference(self) -> None:
         llm_client = FakeLLMClient("unused")
         schema_context_provider = FakeSchemaContextProvider()
-        tool = SampleQueryTool(
+        tool = SampleTool(
             settings=self.settings,
             llm_client=llm_client,
             schema_context_provider=schema_context_provider,
@@ -376,7 +376,7 @@ query ContinentQuery($code: ID!) {
 {"code": "AF"}
 ```
 """
-        tool = SampleQueryTool(
+        tool = SampleTool(
             settings=self.settings,
             llm_client=FakeLLMClient(llm_response),
             schema_context_provider=FakeSchemaContextProvider(),
@@ -407,7 +407,7 @@ query ContinentQuery($code: ID!) {
 ```
 """
         llm_client = FakeLLMClient([llm_response, llm_response])
-        tool = SampleQueryTool(
+        tool = SampleTool(
             settings=settings,
             llm_client=llm_client,
             schema_context_provider=FakeSchemaContextProvider(),

@@ -23,7 +23,7 @@ class FakeLLMPreWarmer:
         self.pre_warm_called = True
 
 
-class FakeSampleQueryTool:
+class FakeSampleTool:
     def __init__(self) -> None:
         self.pre_warm_called = False
 
@@ -201,7 +201,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(404, troubleshoot_response.status_code)
 
     def test_create_app_lifespan_constructs_tools_and_assistant_agent(self) -> None:
-        sample_query_tool = FakeSampleQueryTool()
+        sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
         settings = object()
         schema_context_provider = object()
@@ -213,7 +213,7 @@ class ApiTest(unittest.TestCase):
             patch("graphql_ai.main.SchemaVectorStore", return_value=schema_context_provider) as vector_store_class,
             patch("graphql_ai.main.build_llm_client", return_value=llm_client) as llm_factory,
             patch("graphql_ai.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
-            patch("graphql_ai.main.SampleQueryTool", return_value=sample_query_tool) as sample_tool_class,
+            patch("graphql_ai.main.SampleTool", return_value=sample_tool) as sample_tool_class,
             patch(
                 "graphql_ai.main.TroubleshootingTool",
                 return_value=troubleshooting_tool,
@@ -243,10 +243,10 @@ class ApiTest(unittest.TestCase):
         )
         agent_class.assert_called_once_with(
             llm_client=llm_client,
-            sample_query_tool=sample_query_tool,
+            sample_tool=sample_tool,
             troubleshooting_tool=troubleshooting_tool,
         )
-        self.assertFalse(sample_query_tool.pre_warm_called)
+        self.assertFalse(sample_tool.pre_warm_called)
 
 
 if __name__ == "__main__":

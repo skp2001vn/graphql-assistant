@@ -47,7 +47,7 @@ class InvalidRootFieldNameError(ValueError):
     """Raised when an API root field is not a valid GraphQL field name."""
 
 
-class SampleQueryTool:
+class SampleTool:
     """Assistant tool for generating sample GraphQL operations.
 
     This tool coordinates the sample-generation workflow: input validation,
@@ -64,7 +64,7 @@ class SampleQueryTool:
         rebuild_index: bool = False,
         allow_downloads: bool = False,
     ) -> None:
-        """Create a sample-query tool with injectable infrastructure dependencies."""
+        """Create a sample tool with injectable infrastructure dependencies."""
         self.settings = settings or get_settings()
         self.schema_context_provider = schema_context_provider or SchemaVectorStore(
             settings=self.settings,

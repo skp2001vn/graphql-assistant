@@ -30,7 +30,7 @@ type Country {
 """
 
 
-class FakeSampleQueryTool:
+class FakeSampleTool:
     def __init__(self, sample: GeneratedGraphQLSample, schema_file: Path | None = None) -> None:
         self.sample = sample
         self.settings = type("Settings", (), {"schema_file": schema_file})()
@@ -59,7 +59,7 @@ class FakeLLMPreWarmer:
         self.pre_warm_called = True
 
 
-class FakeMainSampleQueryTool:
+class FakeMainSampleTool:
     def __init__(self, rebuild_index: bool = False) -> None:
         self.settings = type("Settings", (), {"schema_file": Path("schema.graphql")})()
         self.llm_client = object()
@@ -95,7 +95,7 @@ query CountryQuery($code: ID!) {
             variables={"code": "US"},
             raw_response="raw",
         )
-        tool = FakeSampleQueryTool(sample, self.schema_file)
+        tool = FakeSampleTool(sample, self.schema_file)
         cases = [
             SamplePromptEvalCase(
                 name="country",
@@ -116,7 +116,7 @@ query CountryQuery($code: ID!) {
             variables={"code": "US"},
             raw_response="raw",
         )
-        tool = FakeSampleQueryTool(sample, self.schema_file)
+        tool = FakeSampleTool(sample, self.schema_file)
         cases = [SamplePromptEvalCase(name="country", root_field="country", expected_text=("code",))]
 
         results = run_sample_prompt_eval_cases(tool, cases)
@@ -161,7 +161,7 @@ query CountryQuery($code: ID!) {
         result = prompt_eval.PromptEvalResult("sample", "case", True, ("PASS check",))
 
         with patch("sys.argv", ["prompt-eval", "--workflow", "sample"]):
-            with patch("graphql_ai.evaluation.prompt_eval.SampleQueryTool", FakeMainSampleQueryTool):
+            with patch("graphql_ai.evaluation.prompt_eval.SampleTool", FakeMainSampleTool):
                 with patch("graphql_ai.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
                     with patch("graphql_ai.evaluation.prompt_eval.run_sample_prompt_eval_cases", return_value=[result]):
                         with redirect_stdout(output):

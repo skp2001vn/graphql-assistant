@@ -17,7 +17,7 @@ class FakeLLMClient:
         return self.response
 
 
-class FakeSampleQueryTool:
+class FakeSampleTool:
     def __init__(self) -> None:
         self.root_fields: list[str] = []
 
@@ -90,7 +90,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
 
     def test_sample_goal_uses_plan_and_calls_sample_tool(self) -> None:
         planner = FakePlanner("generate_sample", "The user asked for a sample query.")
-        sample_tool = FakeSampleQueryTool()
+        sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
         agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
 
@@ -105,7 +105,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
     def test_troubleshoot_goal_uses_plan_and_calls_troubleshooting_tool(self) -> None:
         graphql_call = "query CountyQuery($code: ID!) { county(code: $code) { code } }"
         planner = FakePlanner("troubleshoot", "The user asked to fix a GraphQL operation.")
-        sample_tool = FakeSampleQueryTool()
+        sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
         agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
 
@@ -125,7 +125,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
     def test_graphql_call_does_not_force_troubleshooting_intent(self) -> None:
         graphql_call = "query CountryQuery($code: ID!) { country(code: $code) { code } }"
         planner = FakePlanner("generate_sample", "The user asked for a fresh sample query.")
-        sample_tool = FakeSampleQueryTool()
+        sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
         agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
 
@@ -145,7 +145,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         planner = FakePlanner("troubleshoot", "The user asked to troubleshoot.")
         agent = GraphQLAssistantAgent(
             FakeLLMClient("unused"),
-            FakeSampleQueryTool(),
+            FakeSampleTool(),
             FakeTroubleshootingTool(),
             planner=planner,
         )
@@ -155,7 +155,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
 
     def test_unsupported_goal_returns_planning_error(self) -> None:
         planner = FakePlanner("unsupported", "The goal is unclear.")
-        sample_tool = FakeSampleQueryTool()
+        sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
         agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
 

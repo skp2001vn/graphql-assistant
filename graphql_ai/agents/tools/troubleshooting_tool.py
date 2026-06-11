@@ -4,7 +4,7 @@ import re
 from threading import Lock
 from typing import Any
 
-from graphql_ai.agents.tools.sample_query_tool import InvalidRootFieldNameError, validate_root_field_request
+from graphql_ai.agents.tools.sample_tool import InvalidRootFieldNameError, validate_root_field_request
 from graphql_ai.core.config import AppSettings, get_settings
 from graphql_ai.core.protocols import SchemaContextProvider
 from graphql_ai.domain import TroubleshootingResult

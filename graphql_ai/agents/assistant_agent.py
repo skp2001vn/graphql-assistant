@@ -5,7 +5,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from graphql_ai.agents.tools import SampleQueryTool, TroubleshootingTool
+from graphql_ai.agents.tools import SampleTool, TroubleshootingTool
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
 from graphql_ai.llm.agno_adapter import LLMClientAgnoModel
 from graphql_ai.llm.base import LLMClient
@@ -120,12 +120,12 @@ class GraphQLAssistantAgent:
     def __init__(
         self,
         llm_client: LLMClient,
-        sample_query_tool: SampleQueryTool,
+        sample_tool: SampleTool,
         troubleshooting_tool: TroubleshootingTool,
         planner: AssistantPlanner | None = None,
     ) -> None:
         """Create an assistant agent with an LLM planner and focused tools."""
-        self.sample_query_tool = sample_query_tool
+        self.sample_tool = sample_tool
         self.troubleshooting_tool = troubleshooting_tool
         self.planner = planner or AgnoAssistantPlanner(llm_client)
 
@@ -153,7 +153,7 @@ class GraphQLAssistantAgent:
 
     def _run_tool(self, intent: PlannerIntent, goal: GraphQLAssistantGoal) -> GraphQLAssistantOutput:
         if intent == "generate_sample":
-            return self.sample_query_tool.generate(goal.root_field)
+            return self.sample_tool.generate(goal.root_field)
 
         if intent == "unsupported":
             raise AgentPlanningError(UNSUPPORTED_GOAL_MESSAGE)

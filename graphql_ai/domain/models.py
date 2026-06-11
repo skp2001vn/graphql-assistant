@@ -21,7 +21,7 @@ class SchemaChunk:
 
 @dataclass(frozen=True)
 class GeneratedGraphQLSample:
-    """Generated sample operation returned by the sample-query workflow.
+    """Generated sample operation returned by the sample-generation workflow.
 
     `operation` is the GraphQL text after parsing model output, `variables`
     is the Variables JSON object paired with that operation, and

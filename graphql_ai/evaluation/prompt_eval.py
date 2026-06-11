@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable, Protocol
 
 from graphql_ai.agents.tools import (
-    SampleQueryTool,
+    SampleTool,
     TroubleshootingTool,
     validate_operation_against_schema,
     validate_variable_usage,
@@ -166,24 +166,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Run prompt evaluation cases against the configured LLM provider."""
     args = parse_args()
-    sample_query_tool = SampleQueryTool(rebuild_index=args.rebuild)
-    sample_query_tool.llm_pre_warmer.pre_warm()
+    sample_tool = SampleTool(rebuild_index=args.rebuild)
+    sample_tool.llm_pre_warmer.pre_warm()
     results: list[PromptEvalResult] = []
 
     if args.workflow in {"all", "sample"}:
-        results.extend(run_sample_prompt_eval_cases(sample_query_tool))
+        results.extend(run_sample_prompt_eval_cases(sample_tool))
 
     if args.workflow in {"all", "troubleshoot"}:
         troubleshooting_tool = TroubleshootingTool(
-            settings=sample_query_tool.settings,
-            llm_client=sample_query_tool.llm_client,
-            llm_pre_warmer=sample_query_tool.llm_pre_warmer,
-            schema_context_provider=sample_query_tool.schema_context_provider,
+            settings=sample_tool.settings,
+            llm_client=sample_tool.llm_client,
+            llm_pre_warmer=sample_tool.llm_pre_warmer,
+            schema_context_provider=sample_tool.schema_context_provider,
         )
         results.extend(
             run_troubleshooting_prompt_eval_cases(
                 troubleshooting_tool,
-                sample_query_tool.settings.schema_file,
+                sample_tool.settings.schema_file,
             )
         )
 

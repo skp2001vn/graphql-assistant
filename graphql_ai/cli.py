@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from graphql_ai.agents import GraphQLAssistantAgent, GraphQLAssistantGoal
-from graphql_ai.agents.tools import SampleQueryTool, TroubleshootingTool
+from graphql_ai.agents.tools import SampleTool, TroubleshootingTool
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
 from graphql_ai.core.config import get_settings
 from graphql_ai.llm.factory import build_llm_client
@@ -47,7 +47,7 @@ def main() -> None:
     llm_pre_warmer = LLMPreWarmer(settings, llm_client)
     llm_pre_warmer.pre_warm()
 
-    sample_query_tool = SampleQueryTool(
+    sample_tool = SampleTool(
         settings=settings,
         llm_client=llm_client,
         llm_pre_warmer=llm_pre_warmer,
@@ -61,7 +61,7 @@ def main() -> None:
     )
     assistant = GraphQLAssistantAgent(
         llm_client=llm_client,
-        sample_query_tool=sample_query_tool,
+        sample_tool=sample_tool,
         troubleshooting_tool=troubleshooting_tool,
     )
     result = assistant.run(

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from graphql_ai.agents import GraphQLAssistantAgent
-from graphql_ai.agents.tools import SampleQueryTool, TroubleshootingTool
+from graphql_ai.agents.tools import SampleTool, TroubleshootingTool
 from graphql_ai.api.routes import router
 from graphql_ai.core.config import get_settings
 from graphql_ai.core.responses import PrettyJSONResponse
@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
     llm_pre_warmer = LLMPreWarmer(settings, llm_client)
     llm_pre_warmer.pre_warm()
 
-    sample_query_tool = SampleQueryTool(
+    sample_tool = SampleTool(
         settings=settings,
         llm_client=llm_client,
         llm_pre_warmer=llm_pre_warmer,
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     )
     graphql_assistant_agent = GraphQLAssistantAgent(
         llm_client=llm_client,
-        sample_query_tool=sample_query_tool,
+        sample_tool=sample_tool,
         troubleshooting_tool=troubleshooting_tool,
     )
     app.state.graphql_assistant_agent = graphql_assistant_agent
