@@ -1,16 +1,16 @@
 # GraphQL Assistant
 
-`graphql_assistant` generates and troubleshoots GraphQL operations from a local schema `*.graphql` files located in the `resources/` folder.
+Generates and troubleshoots GraphQL query/mutation from local schema `*.graphql` files located in the `resources/` folder.
 
-The application exposes one assistant surface, `/assistant`, and supports two workflows:
+The application exposes one assistant surface, `/assistant`, and supports workflows:
 
-- generate a sample GraphQL operation for a root field
-- troubleshoot a submitted GraphQL operation against the active schema
+- generate a sample GraphQL call for a query/mutation
+- troubleshoot a submitted GraphQL query/mutation against the active schema
 - generate mock data and documentation: future extension.
 
 The application supports OpenAI API and local Ollama.
 
-## AI Concepts Covered in this application 
+## AI Concepts Covered 
 
 - RAG: retrieves schema context before generation.
 - Embeddings: converts GraphQL SDL chunks into vectors.
@@ -28,8 +28,6 @@ The application supports OpenAI API and local Ollama.
 - Prompt evaluation: runs fixed assistant cases and scores model output with existing GraphQL guardrails.
 
 ## RAG Pipeline
-
-The RAG path for sample generation is:
 
 1. read `resources/schema.graphql`
 2. split the SDL into schema chunks
@@ -199,4 +197,3 @@ resources/
 - Assistant tools own GraphQL workflow logic.
 - RAG concerns stay in `rag/`.
 - LLM access stays in `llm/`.
-- GraphQL validation remains deterministic even when the workflow uses LLM inference.
