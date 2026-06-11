@@ -4,7 +4,12 @@ import argparse
 from dataclasses import dataclass
 from typing import Iterable, Literal, Protocol
 
-from graphql_assistant.agents import AgentPlanningError, GraphQLAssistantAgent, GraphQLAssistantGoal
+from graphql_assistant.agents import (
+    AgentPlanningError,
+    GraphQLAssistantAgent,
+    GraphQLAssistantGoal,
+    GraphQLAssistantResult,
+)
 from graphql_assistant.agents.tools import (
     SampleTool,
     TroubleshootingTool,
@@ -91,38 +96,9 @@ class TroubleshootingRunner(Protocol):
 class AssistantRunner(Protocol):
     """Protocol for the public assistant entrypoint used by evals."""
 
-    def run(self, goal: GraphQLAssistantGoal) -> object:
+    def run(self, goal: GraphQLAssistantGoal) -> GraphQLAssistantResult:
         """Run a single assistant request."""
 
-
-DEFAULT_SAMPLE_CASES = (
-    SamplePromptEvalCase(
-        name="sample country by code",
-        root_field="country",
-        expected_text=("country(code:", "code", "name"),
-    ),
-    SamplePromptEvalCase(
-        name="sample countries list",
-        root_field="countries",
-        expected_text=("countries", "code", "name"),
-    ),
-)
-
-DEFAULT_TROUBLESHOOTING_CASES = (
-    TroubleshootingPromptEvalCase(
-        name="fix selected field typo",
-        root_field="country",
-        graphql_call="""
-query CountryQuery($code: ID!) {
-  country(code: $code) {
-    code1
-    name
-  }
-}
-""",
-        expected_suggestion_text=("country(code:", "code", "name"),
-    ),
-)
 
 DEFAULT_ASSISTANT_CASES = (
     AssistantPromptEvalCase(
@@ -164,6 +140,27 @@ query CountryQuery($code: ID!) {
     ),
 )
 
+DEFAULT_SAMPLE_CASES = tuple(
+    SamplePromptEvalCase(
+        name=case.name,
+        root_field=case.root_field,
+        expected_text=case.expected_text,
+    )
+    for case in DEFAULT_ASSISTANT_CASES
+    if case.expected_intent == "generate_sample"
+)
+
+DEFAULT_TROUBLESHOOTING_CASES = tuple(
+    TroubleshootingPromptEvalCase(
+        name=case.name,
+        root_field=case.root_field,
+        graphql_call=case.graphql_call or "",
+        expected_suggestion_text=case.expected_text,
+    )
+    for case in DEFAULT_ASSISTANT_CASES
+    if case.expected_intent == "troubleshoot"
+)
+
 
 def run_assistant_prompt_eval_cases(
     assistant: AssistantRunner,
@@ -191,8 +188,14 @@ def run_assistant_prompt_eval_cases(
         )
         try:
             result = assistant.run(request)
-            checks = list(_score_assistant_intent(case, getattr(result, "intent", "")))
-            checks.extend(_score_assistant_output(case, getattr(result, "output", None), schema_file))
+            if not isinstance(result, GraphQLAssistantResult):
+                raise TypeError(
+                    "Assistant runner must return GraphQLAssistantResult, "
+                    f"got {type(result).__name__}."
+                )
+
+            checks = list(_score_assistant_intent(case, result.intent))
+            checks.extend(_score_assistant_output(case, result.output, schema_file))
             results.append(PromptEvalResult("assistant", case.name, _all_checks_passed(tuple(checks)), tuple(checks)))
         except AgentPlanningError as exc:
             if case.expected_intent == "unsupported":
@@ -206,6 +209,8 @@ def run_assistant_prompt_eval_cases(
                 results.append(PromptEvalResult("assistant", case.name, _all_checks_passed(checks), checks))
             else:
                 results.append(PromptEvalResult("assistant", case.name, False, (), str(exc)))
+        except TypeError:
+            raise
         except Exception as exc:
             results.append(PromptEvalResult("assistant", case.name, False, (), str(exc)))
 
@@ -265,12 +270,14 @@ def run_troubleshooting_prompt_eval_cases(
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for prompt evaluation."""
-    parser = argparse.ArgumentParser(description="Run simple prompt evaluation cases.")
+    parser = argparse.ArgumentParser(description="Run assistant prompt evaluation cases.")
     parser.add_argument(
+        "--intent",
         "--workflow",
-        choices=("all", "sample", "troubleshoot"),
+        dest="intent",
+        choices=("all", "generate_sample", "troubleshoot", "unsupported"),
         default="all",
-        help="Prompt workflow to evaluate.",
+        help="Assistant intent scenarios to evaluate.",
     )
     parser.add_argument(
         "--rebuild",
@@ -299,7 +306,7 @@ def main() -> None:
     results = run_assistant_prompt_eval_cases(
         assistant,
         sample_tool.settings.schema_file,
-        _assistant_cases_for_workflow(args.workflow),
+        _assistant_cases_for_intent(args.intent),
     )
 
     _print_results(results)
@@ -353,11 +360,13 @@ def _score_troubleshooting(
     return tuple(checks)
 
 
-def _assistant_cases_for_workflow(workflow: str) -> tuple[AssistantPromptEvalCase, ...]:
-    if workflow == "sample":
+def _assistant_cases_for_intent(intent: str) -> tuple[AssistantPromptEvalCase, ...]:
+    if intent == "generate_sample":
         return tuple(case for case in DEFAULT_ASSISTANT_CASES if case.expected_intent == "generate_sample")
-    if workflow == "troubleshoot":
+    if intent == "troubleshoot":
         return tuple(case for case in DEFAULT_ASSISTANT_CASES if case.expected_intent == "troubleshoot")
+    if intent == "unsupported":
+        return tuple(case for case in DEFAULT_ASSISTANT_CASES if case.expected_intent == "unsupported")
 
     return DEFAULT_ASSISTANT_CASES
 

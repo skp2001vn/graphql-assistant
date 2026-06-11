@@ -227,11 +227,26 @@ query CountryQuery($code: ID!) {
         self.assertTrue(results[0].passed)
         self.assertIn("PASS assistant rejects unsupported goal", results[0].checks)
 
+    def test_assistant_eval_raises_for_invalid_return_type(self) -> None:
+        case = AssistantPromptEvalCase(
+            name="bad assistant contract",
+            goal="Generate a sample query",
+            root_field="country",
+            expected_intent="generate_sample",
+        )
+
+        class InvalidAssistant:
+            def run(self, goal: GraphQLAssistantGoal) -> str:
+                return "not-a-result"
+
+        with self.assertRaises(TypeError):
+            run_assistant_prompt_eval_cases(InvalidAssistant(), self.schema_file, [case])
+
     def test_main_prints_summary(self) -> None:
         output = io.StringIO()
         result = prompt_eval.PromptEvalResult("assistant", "case", True, ("PASS check",))
 
-        with patch("sys.argv", ["prompt-eval", "--workflow", "sample"]):
+        with patch("sys.argv", ["prompt-eval", "--intent", "generate_sample"]):
             with patch("graphql_assistant.evaluation.prompt_eval.SampleTool", FakeMainSampleTool):
                 with patch("graphql_assistant.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
                     with patch("graphql_assistant.evaluation.prompt_eval.GraphQLAssistantAgent", FakeMainAssistant):
