@@ -38,8 +38,12 @@ class AssistantPromptEvalCase:
     goal: str
     root_field: str
     expected_intent: AssistantEvalIntent
-    expected_text: tuple[str, ...] = ()
+    expected_operation_name: str | None = None
+    expected_variable_names: tuple[str, ...] = ()
+    expected_root_field_arguments: tuple[str, ...] = ()
+    expected_root_field_selections: tuple[str, ...] = ()
     graphql_call: str | None = None
+    expected_status: Literal["valid", "invalid"] | None = None
     expected_error_text: str = ""
 
 
@@ -49,7 +53,10 @@ class SamplePromptEvalCase:
 
     name: str
     root_field: str
-    expected_text: tuple[str, ...]
+    expected_operation_name: str | None = None
+    expected_variable_names: tuple[str, ...] = ()
+    expected_root_field_arguments: tuple[str, ...] = ()
+    expected_root_field_selections: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,7 +66,11 @@ class TroubleshootingPromptEvalCase:
     name: str
     root_field: str
     graphql_call: str
-    expected_suggestion_text: tuple[str, ...]
+    expected_operation_name: str | None = None
+    expected_variable_names: tuple[str, ...] = ()
+    expected_root_field_arguments: tuple[str, ...] = ()
+    expected_root_field_selections: tuple[str, ...] = ()
+    expected_status: Literal["valid", "invalid"] = "invalid"
 
 
 @dataclass(frozen=True)
@@ -71,6 +82,17 @@ class PromptEvalResult:
     passed: bool
     checks: tuple[str, ...]
     error: str = ""
+
+
+@dataclass(frozen=True)
+class OperationShape:
+    """Parsed GraphQL operation properties used for prompt eval assertions."""
+
+    operation_name: str | None
+    root_field_name: str | None
+    variable_names: tuple[str, ...]
+    root_field_arguments: tuple[str, ...]
+    root_field_selections: tuple[str, ...]
 
 
 class SettingsWithSchemaFile(Protocol):
@@ -108,14 +130,36 @@ DEFAULT_ASSISTANT_CASES = (
         goal="Generate a sample query",
         root_field="country",
         expected_intent="generate_sample",
-        expected_text=("country(code:", "code", "name"),
+        expected_operation_name="CountryQuery",
+        expected_variable_names=("code",),
+        expected_root_field_arguments=("code",),
+        expected_root_field_selections=("code", "name"),
     ),
     AssistantPromptEvalCase(
         name="assistant sample countries list",
         goal="Generate a sample query",
         root_field="countries",
         expected_intent="generate_sample",
-        expected_text=("countries", "code", "name"),
+        expected_operation_name="CountriesQuery",
+        expected_root_field_selections=("code", "name"),
+    ),
+    AssistantPromptEvalCase(
+        name="assistant sample continent by code",
+        goal="Generate a sample query",
+        root_field="continent",
+        expected_intent="generate_sample",
+        expected_operation_name="ContinentQuery",
+        expected_variable_names=("code",),
+        expected_root_field_arguments=("code",),
+        expected_root_field_selections=("code", "name"),
+    ),
+    AssistantPromptEvalCase(
+        name="assistant sample continents list",
+        goal="Generate a sample query",
+        root_field="continents",
+        expected_intent="generate_sample",
+        expected_operation_name="ContinentsQuery",
+        expected_root_field_selections=("code", "name"),
     ),
     AssistantPromptEvalCase(
         name="assistant fixes selected field typo",
@@ -142,7 +186,26 @@ query CountryQuery($code: ID!) {
 }
 """,
         expected_intent="troubleshoot",
-        expected_text=("country(code:", "code", "name"),
+        expected_status="invalid",
+        expected_operation_name="CountryQuery",
+        expected_variable_names=("code",),
+        expected_root_field_arguments=("code",),
+        expected_root_field_selections=("code", "name"),
+    ),
+    AssistantPromptEvalCase(
+        name="assistant recognizes valid country query",
+        goal="Troubleshoot this GraphQL operation",
+        root_field="country",
+        graphql_call="""
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+""",
+        expected_intent="troubleshoot",
+        expected_status="valid",
     ),
     AssistantPromptEvalCase(
         name="assistant rejects unsupported goal",
@@ -158,7 +221,10 @@ DEFAULT_SAMPLE_CASES = tuple(
     SamplePromptEvalCase(
         name=case.name,
         root_field=case.root_field,
-        expected_text=case.expected_text,
+        expected_operation_name=case.expected_operation_name,
+        expected_variable_names=case.expected_variable_names,
+        expected_root_field_arguments=case.expected_root_field_arguments,
+        expected_root_field_selections=case.expected_root_field_selections,
     )
     for case in DEFAULT_ASSISTANT_CASES
     if case.expected_intent == "generate_sample"
@@ -169,7 +235,11 @@ DEFAULT_TROUBLESHOOTING_CASES = tuple(
         name=case.name,
         root_field=case.root_field,
         graphql_call=case.graphql_call or "",
-        expected_suggestion_text=case.expected_text,
+        expected_operation_name=case.expected_operation_name,
+        expected_variable_names=case.expected_variable_names,
+        expected_root_field_arguments=case.expected_root_field_arguments,
+        expected_root_field_selections=case.expected_root_field_selections,
+        expected_status=case.expected_status or "invalid",
     )
     for case in DEFAULT_ASSISTANT_CASES
     if case.expected_intent == "troubleshoot"
@@ -335,15 +405,7 @@ def _score_sample(case: SamplePromptEvalCase, sample: GeneratedGraphQLSample, sc
     variable_errors = validate_variable_usage(sample.operation, sample.variables)
     checks.append(_format_check("operation validates against schema", not validation_errors, validation_errors))
     checks.append(_format_check("variables match operation", not variable_errors, variable_errors))
-    checks.append(_check_requested_root_field(sample.operation, case.root_field))
-
-    for expected_text in case.expected_text:
-        checks.append(
-            _format_check(
-                f"operation contains `{expected_text}`",
-                expected_text in sample.operation,
-            )
-        )
+    checks.extend(_score_operation_shape(sample.operation, case))
 
     return tuple(checks)
 
@@ -354,15 +416,23 @@ def _score_troubleshooting(
     schema_file: object,
 ) -> tuple[str, ...]:
     original_validation_errors = validate_operation_against_schema(case.graphql_call, schema_file)
+    expected_status = case.expected_status
+    is_valid_passthrough = expected_status == "valid"
     checks = [
         _format_check(
-            "submitted operation is invalid before troubleshooting",
-            bool(original_validation_errors),
-            original_validation_errors or ["submitted operation unexpectedly validated"],
+            "submitted operation matches expected troubleshooting precondition",
+            (not original_validation_errors) if is_valid_passthrough else bool(original_validation_errors),
+            ["submitted operation was expected to validate"]
+            if is_valid_passthrough and original_validation_errors
+            else ["submitted operation unexpectedly validated"]
+            if not is_valid_passthrough and not original_validation_errors
+            else original_validation_errors,
         ),
-        _format_check("original call reports validation issues", bool(result.issues)),
-        _format_check("detail explains the correction", bool(result.detail)),
-        _format_check("suggestion is returned", bool(result.suggestion.strip())),
+        _format_check(
+            f"result status is `{expected_status}`",
+            result.status == expected_status,
+            [f"status was `{result.status}`"] if result.status != expected_status else None,
+        ),
         _format_check(
             "result status matches troubleshooting outcome",
             result.status == ("invalid" if result.issues else "valid"),
@@ -372,21 +442,31 @@ def _score_troubleshooting(
         ),
     ]
 
+    if is_valid_passthrough:
+        checks.extend(
+            [
+                _format_check("valid result reports no issues", not result.issues, result.issues or None),
+                _format_check("valid result keeps detail empty", not result.detail),
+                _format_check("valid result keeps suggestion empty", not result.suggestion.strip()),
+            ]
+        )
+        return tuple(checks)
+
+    checks.extend(
+        [
+            _format_check("original call reports validation issues", bool(result.issues)),
+            _format_check("detail explains the correction", bool(result.detail)),
+            _format_check("suggestion is returned", bool(result.suggestion.strip())),
+        ]
+    )
+
     if result.suggestion:
         validation_errors = validate_operation_against_schema(result.suggestion, schema_file)
         checks.append(_format_check("suggestion validates against schema", not validation_errors, validation_errors))
-        checks.append(_check_requested_root_field(result.suggestion, case.root_field))
+        checks.extend(_score_operation_shape(result.suggestion, case))
     else:
         checks.append(_format_check("suggestion validates against schema", False, ["missing suggestion"]))
         checks.append(_format_check(f"suggestion targets requested root field `{case.root_field}`", False, ["missing suggestion"]))
-
-    for expected_text in case.expected_suggestion_text:
-        checks.append(
-            _format_check(
-                f"suggestion contains `{expected_text}`",
-                expected_text in result.suggestion,
-            )
-        )
 
     return tuple(checks)
 
@@ -430,7 +510,10 @@ def _score_assistant_output(
         sample_case = SamplePromptEvalCase(
             name=case.name,
             root_field=case.root_field,
-            expected_text=case.expected_text,
+            expected_operation_name=case.expected_operation_name,
+            expected_variable_names=case.expected_variable_names,
+            expected_root_field_arguments=case.expected_root_field_arguments,
+            expected_root_field_selections=case.expected_root_field_selections,
         )
         return _score_sample(sample_case, output, schema_file)
 
@@ -448,7 +531,11 @@ def _score_assistant_output(
             name=case.name,
             root_field=case.root_field,
             graphql_call=case.graphql_call or "",
-            expected_suggestion_text=case.expected_text,
+            expected_operation_name=case.expected_operation_name,
+            expected_variable_names=case.expected_variable_names,
+            expected_root_field_arguments=case.expected_root_field_arguments,
+            expected_root_field_selections=case.expected_root_field_selections,
+            expected_status=case.expected_status or "invalid",
         )
         return _score_troubleshooting(troubleshooting_case, output, schema_file)
 
@@ -481,45 +568,132 @@ def _print_results(results: list[PromptEvalResult]) -> None:
     print(f"\nSummary: {passed_count}/{len(results)} passed")
 
 
-def _check_requested_root_field(operation: str, root_field: str) -> str:
-    operation_root_fields, parse_errors = _extract_root_fields(operation)
+def _score_operation_shape(
+    operation: str,
+    case: SamplePromptEvalCase | TroubleshootingPromptEvalCase,
+) -> tuple[str, ...]:
+    shape, parse_errors = _extract_operation_shape(operation, case.root_field)
     if parse_errors:
-        return _format_check(
-            f"operation targets requested root field `{root_field}`",
-            False,
-            parse_errors,
+        return (
+            _format_check(
+                f"operation targets requested root field `{case.root_field}`",
+                False,
+                parse_errors,
+            ),
         )
 
+    checks = [_check_requested_root_field_shape(case, shape)]
+
+    if case.expected_operation_name is not None:
+        checks.append(
+            _format_check(
+                f"operation name is `{case.expected_operation_name}`",
+                shape.operation_name == case.expected_operation_name,
+                [f"operation name was `{shape.operation_name or '<anonymous>'}`"]
+                if shape.operation_name != case.expected_operation_name
+                else None,
+            )
+        )
+
+    checks.append(
+        _format_check(
+            f"declared variables are {case.expected_variable_names or 'empty'}",
+            shape.variable_names == case.expected_variable_names,
+            [f"variables were: {shape.variable_names or '<empty>'}"]
+            if shape.variable_names != case.expected_variable_names
+            else None,
+        )
+    )
+    checks.append(
+        _format_check(
+            f"root field arguments are {case.expected_root_field_arguments or 'empty'}",
+            shape.root_field_arguments == case.expected_root_field_arguments,
+            [f"arguments were: {shape.root_field_arguments or '<empty>'}"]
+            if shape.root_field_arguments != case.expected_root_field_arguments
+            else None,
+        )
+    )
+
+    for selection_name in case.expected_root_field_selections:
+        checks.append(
+            _format_check(
+                f"root field selects `{selection_name}`",
+                selection_name in shape.root_field_selections,
+            )
+        )
+
+    return tuple(checks)
+
+
+def _check_requested_root_field_shape(
+    case: SamplePromptEvalCase | TroubleshootingPromptEvalCase,
+    shape: OperationShape,
+) -> str:
     return _format_check(
-        f"operation targets requested root field `{root_field}`",
-        root_field in operation_root_fields,
-        [f"top-level root fields were: {', '.join(operation_root_fields) or '<none>'}"]
-        if root_field not in operation_root_fields
+        f"operation targets requested root field `{case.root_field}`",
+        shape.root_field_name == case.root_field,
+        [f"top-level root field was `{shape.root_field_name or '<none>'}`"]
+        if shape.root_field_name != case.root_field
         else None,
     )
 
 
-def _extract_root_fields(operation: str) -> tuple[tuple[str, ...], list[str] | None]:
+def _extract_operation_shape(operation: str, root_field: str) -> tuple[OperationShape, list[str] | None]:
     try:
-        from graphql import OperationDefinitionNode, parse
+        from graphql import FieldNode, OperationDefinitionNode, parse
     except ImportError as exc:
         raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
 
     try:
         document = parse(operation)
     except Exception as exc:
-        return (), [str(exc).split("\n\n", maxsplit=1)[0]]
+        return OperationShape(None, None, (), (), ()), [str(exc).split("\n\n", maxsplit=1)[0]]
 
-    root_fields: list[str] = []
+    operation_name: str | None = None
+    variable_names: tuple[str, ...] = ()
+    root_field_name: str | None = None
+    root_field_arguments: tuple[str, ...] = ()
+    root_field_selections: tuple[str, ...] = ()
+
     for definition in document.definitions:
         if not isinstance(definition, OperationDefinitionNode):
             continue
-        for selection in definition.selection_set.selections:
-            field_name = getattr(getattr(selection, "name", None), "value", None)
-            if field_name:
-                root_fields.append(field_name)
+        operation_name = getattr(getattr(definition, "name", None), "value", None)
+        variable_names = tuple(variable.variable.name.value for variable in definition.variable_definitions or ())
 
-    return tuple(root_fields), None
+        for selection in definition.selection_set.selections:
+            if not isinstance(selection, FieldNode):
+                continue
+            field_name = selection.name.value
+            if field_name != root_field:
+                if root_field_name is None:
+                    root_field_name = field_name
+                continue
+
+            root_field_name = field_name
+            root_field_arguments = tuple(argument.name.value for argument in selection.arguments or ())
+            root_field_selections = tuple(
+                nested_selection.name.value
+                for nested_selection in selection.selection_set.selections
+                if isinstance(nested_selection, FieldNode)
+            ) if selection.selection_set is not None else ()
+            return OperationShape(
+                operation_name=operation_name,
+                root_field_name=root_field_name,
+                variable_names=variable_names,
+                root_field_arguments=root_field_arguments,
+                root_field_selections=root_field_selections,
+            ), None
+
+        break
+
+    return OperationShape(
+        operation_name=operation_name,
+        root_field_name=root_field_name,
+        variable_names=variable_names,
+        root_field_arguments=root_field_arguments,
+        root_field_selections=root_field_selections,
+    ), None
 
 
 if __name__ == "__main__":

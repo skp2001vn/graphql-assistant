@@ -24,9 +24,16 @@ SCHEMA = """
 type Query {
   countries: [Country!]!
   country(code: ID!): Country
+  continents: [Continent!]!
+  continent(code: ID!): Continent
 }
 
 type Country {
+  code: ID!
+  name: String!
+}
+
+type Continent {
   code: ID!
   name: String!
 }
@@ -120,7 +127,10 @@ query CountryQuery($code: ID!) {
             SamplePromptEvalCase(
                 name="country",
                 root_field="country",
-                expected_text=("country(code:", "code", "name"),
+                expected_operation_name="CountryQuery",
+                expected_variable_names=("code",),
+                expected_root_field_arguments=("code",),
+                expected_root_field_selections=("code", "name"),
             )
         ]
 
@@ -137,7 +147,13 @@ query CountryQuery($code: ID!) {
             raw_response="raw",
         )
         tool = FakeSampleTool(sample, self.schema_file)
-        cases = [SamplePromptEvalCase(name="country", root_field="country", expected_text=("code",))]
+        cases = [
+            SamplePromptEvalCase(
+                name="country",
+                root_field="country",
+                expected_root_field_selections=("code",),
+            )
+        ]
 
         results = run_sample_prompt_eval_cases(tool, cases)
 
@@ -162,7 +178,7 @@ query CountriesQuery {
             SamplePromptEvalCase(
                 name="country",
                 root_field="country",
-                expected_text=("code", "name"),
+                expected_root_field_selections=("code", "name"),
             )
         ]
 
@@ -195,7 +211,10 @@ query CountryQuery($code: ID!) {
                 name="field typo",
                 root_field="country",
                 graphql_call="query CountryQuery($code: ID!) { country(code: $code) { code1 } }",
-                expected_suggestion_text=("country(code:", "code", "name"),
+                expected_operation_name="CountryQuery",
+                expected_variable_names=("code",),
+                expected_root_field_arguments=("code",),
+                expected_root_field_selections=("code", "name"),
             )
         ]
 
@@ -204,6 +223,37 @@ query CountryQuery($code: ID!) {
         self.assertTrue(results[0].passed)
         self.assertEqual([("country", cases[0].graphql_call)], tool.calls)
         self.assertIn("PASS suggestion validates against schema", results[0].checks)
+
+    def test_troubleshooting_eval_passes_valid_passthrough(self) -> None:
+        result = TroubleshootingResult(
+            root_field="country",
+            status="valid",
+            issues=[],
+            detail=[],
+            suggestion="",
+            raw_response="",
+        )
+        tool = FakeTroubleshootingTool(result)
+        cases = [
+            TroubleshootingPromptEvalCase(
+                name="already valid",
+                root_field="country",
+                graphql_call="""
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+""",
+                expected_status="valid",
+            )
+        ]
+
+        results = run_troubleshooting_prompt_eval_cases(tool, self.schema_file, cases)
+
+        self.assertTrue(results[0].passed)
+        self.assertIn("PASS result status is `valid`", results[0].checks)
 
     def test_troubleshooting_eval_fails_when_status_conflicts_with_issues(self) -> None:
         result = TroubleshootingResult(
@@ -227,7 +277,10 @@ query CountryQuery($code: ID!) {
                 name="field typo",
                 root_field="country",
                 graphql_call="query CountryQuery($code: ID!) { country(code: $code) { code1 } }",
-                expected_suggestion_text=("country(code:", "code", "name"),
+                expected_operation_name="CountryQuery",
+                expected_variable_names=("code",),
+                expected_root_field_arguments=("code",),
+                expected_root_field_selections=("code", "name"),
             )
         ]
 
@@ -256,7 +309,10 @@ query CountryQuery($code: ID!) {
             goal="Generate a sample query",
             root_field="country",
             expected_intent="generate_sample",
-            expected_text=("country(code:", "code", "name"),
+            expected_operation_name="CountryQuery",
+            expected_variable_names=("code",),
+            expected_root_field_arguments=("code",),
+            expected_root_field_selections=("code", "name"),
         )
         assistant = FakeAssistant(
             GraphQLAssistantResult(
