@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -82,13 +82,6 @@ class IntentOutput(BaseModel):
     reason: str = Field(description="Short reason for selecting this intent.")
 
 
-class AssistantPlanner(Protocol):
-    """Planner interface for workflow selection inside the assistant layer."""
-
-    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[PlannerIntent, str, str]:
-        """Return the chosen workflow intent, rationale, and raw planner payload."""
-
-
 class AgnoAssistantPlanner:
     """Agno-backed planner that classifies the user's requested workflow.
 
@@ -163,21 +156,19 @@ class GraphQLAssistantAgent:
 
     def __init__(
         self,
-        llm_client: LLMClient,
         sample_tool: SampleTool,
         troubleshooting_tool: TroubleshootingTool,
-        planner: AssistantPlanner | None = None,
+        planner: AgnoAssistantPlanner,
     ) -> None:
         """Create the assistant with a planner and concrete workflow tools.
 
         The assistant depends on specialized tools rather than a generic tool
         registry because the current business scope is small and explicit:
-        sample generation and troubleshooting. The planner can be injected to
-        support deterministic tests or future planner variants.
+        sample generation and troubleshooting.
         """
         self.sample_tool = sample_tool
         self.troubleshooting_tool = troubleshooting_tool
-        self.planner = planner or AgnoAssistantPlanner(llm_client)
+        self.planner = planner
 
     def run(self, goal: GraphQLAssistantGoal) -> GraphQLAssistantResult:
         """Plan and execute the workflow for a single assistant request.

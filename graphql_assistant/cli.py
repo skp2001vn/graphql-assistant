@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from graphql_assistant.agents import GraphQLAssistantAgent, GraphQLAssistantGoal
+from graphql_assistant.agents import AgnoAssistantPlanner, GraphQLAssistantAgent, GraphQLAssistantGoal
 from graphql_assistant.agents.tools import SampleTool, TroubleshootingTool
 from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
 from graphql_assistant.core.config import get_settings
@@ -59,9 +59,9 @@ def main() -> None:
         schema_context_provider=schema_context_provider,
     )
     assistant = GraphQLAssistantAgent(
-        llm_client=llm_client,
         sample_tool=sample_tool,
         troubleshooting_tool=troubleshooting_tool,
+        planner=AgnoAssistantPlanner(llm_client),
     )
     result = assistant.run(
         GraphQLAssistantGoal(

@@ -311,10 +311,11 @@ query CountryQuery($code: ID!) {
             with patch("graphql_assistant.evaluation.prompt_eval.SampleTool", FakeMainSampleTool):
                 with patch("graphql_assistant.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
                     with patch("graphql_assistant.evaluation.prompt_eval.LLMPreWarmer", return_value=FakeLLMPreWarmer()):
-                        with patch("graphql_assistant.evaluation.prompt_eval.GraphQLAssistantAgent", FakeMainAssistant):
-                            with patch("graphql_assistant.evaluation.prompt_eval.run_assistant_prompt_eval_cases", return_value=[result]):
-                                with redirect_stdout(output):
-                                    prompt_eval.main()
+                        with patch("graphql_assistant.evaluation.prompt_eval.AgnoAssistantPlanner", return_value=object()):
+                            with patch("graphql_assistant.evaluation.prompt_eval.GraphQLAssistantAgent", FakeMainAssistant):
+                                with patch("graphql_assistant.evaluation.prompt_eval.run_assistant_prompt_eval_cases", return_value=[result]):
+                                    with redirect_stdout(output):
+                                        prompt_eval.main()
 
         self.assertIn("[PASS] assistant: case", output.getvalue())
         self.assertIn("Summary: 1/1 passed", output.getvalue())

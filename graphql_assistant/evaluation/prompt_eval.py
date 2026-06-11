@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable, Literal, Protocol
 
 from graphql_assistant.agents import (
+    AgnoAssistantPlanner,
     AgentPlanningError,
     GraphQLAssistantAgent,
     GraphQLAssistantGoal,
@@ -313,9 +314,9 @@ def main() -> None:
         schema_context_provider=sample_tool.schema_context_provider,
     )
     assistant = GraphQLAssistantAgent(
-        llm_client=sample_tool.llm_client,
         sample_tool=sample_tool,
         troubleshooting_tool=troubleshooting_tool,
+        planner=AgnoAssistantPlanner(sample_tool.llm_client),
     )
     results = run_assistant_prompt_eval_cases(
         assistant,

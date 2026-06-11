@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from graphql_assistant.agents import GraphQLAssistantAgent
+from graphql_assistant.agents import AgnoAssistantPlanner, GraphQLAssistantAgent
 from graphql_assistant.agents.tools import SampleTool, TroubleshootingTool
 from graphql_assistant.api.routes import router
 from graphql_assistant.core.config import get_settings
@@ -39,9 +39,9 @@ async def lifespan(app: FastAPI):
         schema_context_provider=schema_context_provider,
     )
     graphql_assistant_agent = GraphQLAssistantAgent(
-        llm_client=llm_client,
         sample_tool=sample_tool,
         troubleshooting_tool=troubleshooting_tool,
+        planner=AgnoAssistantPlanner(llm_client),
     )
     app.state.graphql_assistant_agent = graphql_assistant_agent
     yield

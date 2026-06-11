@@ -20,13 +20,13 @@ class FakeLLMPreWarmer:
 class FakeAssistantAgent:
     def __init__(
         self,
-        llm_client: object,
         sample_tool: object,
         troubleshooting_tool: object,
+        planner: object,
     ) -> None:
-        self.llm_client = llm_client
         self.sample_tool = sample_tool
         self.troubleshooting_tool = troubleshooting_tool
+        self.planner = planner
         self.goals = []
 
     def run(self, goal: object) -> object:
@@ -80,6 +80,7 @@ class CliTest(unittest.TestCase):
             patch("graphql_assistant.cli.SchemaVectorStore", return_value=object()),
             patch("graphql_assistant.cli.build_llm_client", return_value=object()),
             patch("graphql_assistant.cli.LLMPreWarmer", return_value=FakeLLMPreWarmer()),
+            patch("graphql_assistant.cli.AgnoAssistantPlanner", return_value=object()),
             patch("graphql_assistant.cli.SampleTool", return_value=object()),
             patch("graphql_assistant.cli.TroubleshootingTool", return_value=object()),
             patch("graphql_assistant.cli.GraphQLAssistantAgent", FakeAssistantAgent),
@@ -109,6 +110,7 @@ class CliTest(unittest.TestCase):
             patch("graphql_assistant.cli.SchemaVectorStore", return_value=object()),
             patch("graphql_assistant.cli.build_llm_client", return_value=object()),
             patch("graphql_assistant.cli.LLMPreWarmer", return_value=FakeLLMPreWarmer()),
+            patch("graphql_assistant.cli.AgnoAssistantPlanner", return_value=object()),
             patch("graphql_assistant.cli.SampleTool", return_value=object()),
             patch("graphql_assistant.cli.TroubleshootingTool", return_value=object()),
             patch("graphql_assistant.cli.GraphQLAssistantAgent", FakeAssistantAgent),

@@ -92,7 +92,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         planner = FakePlanner("generate_sample", "The user asked for a sample query.")
         sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
-        agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
+        agent = GraphQLAssistantAgent(sample_tool, troubleshooting_tool, planner=planner)
 
         result = agent.run(GraphQLAssistantGoal(goal="Generate a sample query", root_field="country"))
 
@@ -107,7 +107,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         planner = FakePlanner("troubleshoot", "The user asked to fix a GraphQL operation.")
         sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
-        agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
+        agent = GraphQLAssistantAgent(sample_tool, troubleshooting_tool, planner=planner)
 
         result = agent.run(
             GraphQLAssistantGoal(
@@ -127,7 +127,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         planner = FakePlanner("generate_sample", "The user asked for a fresh sample query.")
         sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
-        agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
+        agent = GraphQLAssistantAgent(sample_tool, troubleshooting_tool, planner=planner)
 
         result = agent.run(
             GraphQLAssistantGoal(
@@ -144,7 +144,6 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
     def test_troubleshoot_plan_requires_request_graphql_call(self) -> None:
         planner = FakePlanner("troubleshoot", "The user asked to troubleshoot.")
         agent = GraphQLAssistantAgent(
-            FakeLLMClient("unused"),
             FakeSampleTool(),
             FakeTroubleshootingTool(),
             planner=planner,
@@ -157,7 +156,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         planner = FakePlanner("unsupported", "The goal is unclear.")
         sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()
-        agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
+        agent = GraphQLAssistantAgent(sample_tool, troubleshooting_tool, planner=planner)
 
         with self.assertRaisesRegex(AgentPlanningError, "Assistant goal must ask"):
             agent.run(

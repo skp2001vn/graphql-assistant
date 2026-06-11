@@ -236,6 +236,7 @@ class ApiTest(unittest.TestCase):
         settings = object()
         schema_context_provider = object()
         llm_client = object()
+        planner = object()
         pre_warmer = FakeLLMPreWarmer(settings, llm_client)
 
         with (
@@ -243,6 +244,7 @@ class ApiTest(unittest.TestCase):
             patch("graphql_assistant.main.SchemaVectorStore", return_value=schema_context_provider) as vector_store_class,
             patch("graphql_assistant.main.build_llm_client", return_value=llm_client) as llm_factory,
             patch("graphql_assistant.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
+            patch("graphql_assistant.main.AgnoAssistantPlanner", return_value=planner) as planner_class,
             patch("graphql_assistant.main.SampleTool", return_value=sample_tool) as sample_tool_class,
             patch(
                 "graphql_assistant.main.TroubleshootingTool",
@@ -259,6 +261,7 @@ class ApiTest(unittest.TestCase):
         llm_factory.assert_called_once_with(settings)
         pre_warmer_class.assert_called_once_with(settings, llm_client)
         self.assertTrue(pre_warmer.pre_warm_called)
+        planner_class.assert_called_once_with(llm_client)
         sample_tool_class.assert_called_once_with(
             settings=settings,
             llm_client=llm_client,
@@ -271,9 +274,9 @@ class ApiTest(unittest.TestCase):
             schema_context_provider=schema_context_provider,
         )
         agent_class.assert_called_once_with(
-            llm_client=llm_client,
             sample_tool=sample_tool,
             troubleshooting_tool=troubleshooting_tool,
+            planner=planner,
         )
         self.assertFalse(sample_tool.pre_warm_called)
 
