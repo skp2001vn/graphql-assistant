@@ -29,8 +29,8 @@ class SchemaVectorStore:
 
     The vector index is persisted in Chroma and invalidated when schema content,
     chunking version, embedding model, or collection name changes. Repeated
-    request-to-context retrievals can also be cached separately so common demo
-    calls avoid recomputing the request embedding and Chroma query.
+    request-to-context retrievals can also be cached separately so repeated
+    requests avoid recomputing the request embedding and Chroma query.
     """
 
     def __init__(

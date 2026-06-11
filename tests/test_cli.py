@@ -63,7 +63,7 @@ class FakeAssistantAgent:
 
 class CliTest(unittest.TestCase):
     def test_parse_args_uses_default_root_field(self) -> None:
-        with patch("sys.argv", ["graphql-ai"]):
+        with patch("sys.argv", ["graphql-assistant"]):
             args = cli.parse_args()
 
         self.assertEqual("Generate a sample query", args.goal)
@@ -75,7 +75,7 @@ class CliTest(unittest.TestCase):
         output = io.StringIO()
 
         with (
-            patch("sys.argv", ["graphql-ai", "--rebuild", "Generate a sample query", "countries"]),
+            patch("sys.argv", ["graphql-assistant", "--rebuild", "Generate a sample query", "countries"]),
             patch("graphql_assistant.cli.get_settings", return_value=object()),
             patch("graphql_assistant.cli.SchemaVectorStore", return_value=object()),
             patch("graphql_assistant.cli.build_llm_client", return_value=object()),
@@ -99,7 +99,7 @@ class CliTest(unittest.TestCase):
             patch(
                 "sys.argv",
                 [
-                    "graphql-ai",
+                    "graphql-assistant",
                     "Troubleshoot this operation",
                     "country",
                     "--graphql-call",
