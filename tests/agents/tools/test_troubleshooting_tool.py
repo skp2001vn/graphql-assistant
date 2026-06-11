@@ -143,6 +143,42 @@ query CountryQuery($code: ID!) {
         self.assertEqual([], llm_client.prompts)
         self.assertEqual([], schema_context_provider.requests)
 
+    def test_troubleshoot_formats_suggestion_as_pretty_graphql(self) -> None:
+        llm_client = FakeLLMClient(
+            """
+DETAIL:
+```text
+Use the schema root field country.
+```
+
+SUGGESTION:
+```graphql
+query CountryQuery($code: ID!) { country(code: $code) { code name } }
+```
+"""
+        )
+        tool = TroubleshootingTool(
+            settings=self.settings,
+            llm_client=llm_client,
+            llm_pre_warmer=FakeLLMPreWarmer(),
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        result = tool.troubleshoot(
+            "country",
+            'query CountyQuery($code: ID!) { county(code: $code) { code } }',
+        )
+
+        self.assertEqual(
+            """query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}""",
+            result.suggestion,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

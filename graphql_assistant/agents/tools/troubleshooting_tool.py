@@ -181,6 +181,8 @@ class TroubleshootingTool:
             corrected_issues = self._validate_graphql(suggested_operation)
             if corrected_issues:
                 suggested_operation = ""
+            else:
+                suggested_operation = _format_graphql_operation(suggested_operation)
 
         issues = validation_issues
         if corrected_issues:
@@ -315,3 +317,13 @@ def format_graphql_issue(error: Exception) -> str:
 
     location_text = ", ".join(f"line {location.line}, column {location.column}" for location in locations)
     return f"{message} Location: {location_text}."
+
+
+def _format_graphql_operation(operation: str) -> str:
+    """Render a validated GraphQL operation with stable pretty formatting."""
+    try:
+        from graphql import parse, print_ast
+    except ImportError as exc:
+        raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
+
+    return print_ast(parse(operation)).strip()
