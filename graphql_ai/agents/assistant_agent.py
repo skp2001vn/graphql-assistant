@@ -71,24 +71,48 @@ class GraphQLAssistantResult:
 
 
 class IntentOutput(BaseModel):
-    """Structured Agno output for assistant workflow selection."""
+    """Structured planner payload for assistant intent classification.
+
+    The assistant uses Agno in structured-output mode rather than letting the
+    framework execute tools directly. This schema limits the model's role to
+    intent classification, which keeps routing auditable and easy to test.
+    """
 
     intent: PlannerIntent
     reason: str = Field(description="Short reason for selecting this intent.")
 
 
 class AssistantPlanner(Protocol):
-    """Planner interface used by the assistant agent."""
+    """Planner interface for workflow selection inside the assistant layer."""
 
     def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[PlannerIntent, str, str]:
-        """Return the selected intent, reason, and raw planner response."""
+        """Return the chosen workflow intent, rationale, and raw planner payload."""
 
 
 class AgnoAssistantPlanner:
-    """Agno-backed structured planner for GraphQL assistant intent selection."""
+    """Agno-backed planner that classifies the user's requested workflow.
+
+    This component is intentionally narrow. It uses Agno as a structured
+    orchestration layer for intent selection, not as a general autonomous
+    agent. The planner reads the natural-language goal plus request context and
+    maps it to one of three intents:
+
+    - `generate_sample`
+    - `troubleshoot`
+    - `unsupported`
+
+    The application still owns tool inputs and execution. That split keeps the
+    LLM focused on semantic classification while deterministic Python code
+    enforces request contracts and dispatch behavior.
+    """
 
     def __init__(self, llm_client: LLMClient) -> None:
-        """Create an Agno planner over the configured application LLM client."""
+        """Create a structured Agno planner over the configured LLM client.
+
+        The planner runs in JSON/typed-output mode so the model must emit a
+        payload matching `IntentOutput`. This is the main technique used to
+        reduce brittle string parsing in the assistant layer.
+        """
         try:
             from agno.agent import Agent
         except ImportError as exc:
@@ -104,7 +128,11 @@ class AgnoAssistantPlanner:
         )
 
     def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[PlannerIntent, str, str]:
-        """Run the Agno planner and return the selected assistant intent."""
+        """Classify the request into an executable assistant workflow intent.
+
+        The returned raw payload is preserved for observability and debugging,
+        while the typed intent is used for deterministic tool dispatch.
+        """
         response = self.agent.run(_build_planner_input(goal))
         content = response.content
         if not isinstance(content, IntentOutput):
@@ -115,7 +143,23 @@ class AgnoAssistantPlanner:
 
 
 class GraphQLAssistantAgent:
-    """Application agent that plans and dispatches GraphQL assistant workflows."""
+    """Top-level application agent for GraphQL assistant workflows.
+
+    This class is the business entry point behind the unified `/assistant`
+    interface. It implements a small planner-dispatcher pattern:
+
+    1. Normalize and validate the user request envelope.
+    2. Ask an Agno-backed planner to classify the user's goal.
+    3. Dispatch to the matching assistant tool.
+    4. Return a typed application result that includes the selected intent and
+       the tool output.
+
+    The assistant deliberately does not expose direct framework-managed tool
+    execution. Agno is used only for structured workflow planning. All request
+    validation, tool input ownership, and business guardrails remain in
+    application code so the behavior stays explicit, testable, and stable as
+    more assistant workflows are added.
+    """
 
     def __init__(
         self,
@@ -124,13 +168,31 @@ class GraphQLAssistantAgent:
         troubleshooting_tool: TroubleshootingTool,
         planner: AssistantPlanner | None = None,
     ) -> None:
-        """Create an assistant agent with an LLM planner and focused tools."""
+        """Create the assistant with a planner and concrete workflow tools.
+
+        The assistant depends on specialized tools rather than a generic tool
+        registry because the current business scope is small and explicit:
+        sample generation and troubleshooting. The planner can be injected to
+        support deterministic tests or future planner variants.
+        """
         self.sample_tool = sample_tool
         self.troubleshooting_tool = troubleshooting_tool
         self.planner = planner or AgnoAssistantPlanner(llm_client)
 
     def run(self, goal: GraphQLAssistantGoal) -> GraphQLAssistantResult:
-        """Plan and execute the workflow needed to satisfy a GraphQL assistant goal."""
+        """Plan and execute the workflow for a single assistant request.
+
+        This method is the orchestration boundary for the app's assistant use
+        cases. It performs lightweight request normalization, asks the planner
+        to classify the natural-language goal, and then executes the matching
+        tool with application-owned inputs.
+
+        The separation matters operationally:
+        - the planner handles semantic intent detection,
+        - tools handle domain workflows such as RAG retrieval, inference, and
+          GraphQL validation,
+        - and the assistant preserves a single API contract for both.
+        """
         normalized_goal = GraphQLAssistantGoal(
             goal=goal.goal.strip(),
             root_field=goal.root_field.strip(),

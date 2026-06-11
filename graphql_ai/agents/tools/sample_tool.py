@@ -48,11 +48,27 @@ class InvalidRootFieldNameError(ValueError):
 
 
 class SampleTool:
-    """Assistant tool for generating sample GraphQL operations.
+    """RAG-backed assistant tool for sample GraphQL operation generation.
 
-    This tool coordinates the sample-generation workflow: input validation,
-    focused schema retrieval, prompt construction, inference, response parsing,
-    and GraphQL output guardrails.
+    This tool owns the business workflow behind "generate a sample operation"
+    requests. It turns a single GraphQL root-field request into a prompt-safe,
+    schema-valid sample by combining deterministic validation with LLM
+    inference:
+
+    1. Validate and normalize the requested Query or Mutation root field.
+    2. Retrieve focused schema context for that field through the app's RAG
+       layer instead of sending the full SDL into every prompt.
+    3. Build a constrained generation prompt that anchors the model on the
+       requested root field, response type, operation name, and variable
+       rules.
+    4. Run inference through the configured LLM client.
+    5. Parse the model response into a GraphQL operation and variables JSON.
+    6. Apply post-generation guardrails with GraphQL-core validation and
+       variable-usage checks before returning the sample.
+
+    The design is intentionally hybrid: retrieval-augmented prompting improves
+    relevance, while deterministic validation limits hallucinated fields and
+    malformed variables from leaking into the final response.
     """
 
     def __init__(
@@ -64,7 +80,15 @@ class SampleTool:
         rebuild_index: bool = False,
         allow_downloads: bool = False,
     ) -> None:
-        """Create a sample tool with injectable infrastructure dependencies."""
+        """Create the sample-generation tool and wire its inference dependencies.
+
+        The constructor supports dependency injection so tests can substitute
+        fake LLM and RAG implementations, while production code can use the
+        default vector-store retriever, configured model client, and optional
+        model pre-warmer. The tool also keeps a small generation lock because
+        some local-model runtimes behave more predictably under serialized
+        prompt execution.
+        """
         self.settings = settings or get_settings()
         self.schema_context_provider = schema_context_provider or SchemaVectorStore(
             settings=self.settings,
@@ -76,7 +100,20 @@ class SampleTool:
         self._generation_lock = Lock()
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
-        """Generate a sample GraphQL operation and variables for an API root field."""
+        """Generate a schema-valid sample operation for the requested root field.
+
+        Business flow:
+        1. Normalize and validate the user-supplied root field.
+        2. Retrieve topically relevant schema context through semantic search.
+        3. Prompt the LLM to synthesize one GraphQL operation plus variables.
+        4. Parse the raw model output into structured application data.
+        5. Reject invalid generations with deterministic GraphQL validation.
+
+        The returned value is intended to be directly consumable by the API or
+        CLI. If the model proposes fields, arguments, or variables that do not
+        match the current schema, this method fails fast instead of returning a
+        partially-correct sample.
+        """
         normalized_root_field = validate_root_field_request(root_field)
 
         operation_name = f"{_pascal_case(normalized_root_field)}Query"

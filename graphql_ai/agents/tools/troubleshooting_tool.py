@@ -67,7 +67,13 @@ CODE_BLOCK_RE = re.compile(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", flags=re.DOTALL
 
 
 def validate_troubleshooting_input(root_field: str, graphql_call: str) -> tuple[str, str]:
-    """Return normalized input or raise when the request is malformed."""
+    """Normalize troubleshooting input before validation and inference.
+
+    This is the first guardrail in the troubleshooting workflow. It keeps the
+    downstream validator and LLM prompt focused on a legitimate root field and
+    a non-empty submitted operation instead of trying to recover from malformed
+    request payloads later in the pipeline.
+    """
     normalized_root_field = validate_root_field_request(root_field)
     normalized_graphql_call = graphql_call.strip()
     if not normalized_graphql_call:
@@ -77,15 +83,33 @@ def validate_troubleshooting_input(root_field: str, graphql_call: str) -> tuple[
 
 
 class GraphQLValidator:
-    """Validator that captures GraphQL syntax and schema issues."""
+    """Deterministic GraphQL-core validator for troubleshooting requests.
+
+    The assistant uses this component before any LLM call. It separates
+    parser/schema validation from model reasoning so the tool can:
+
+    - short-circuit valid operations without spending tokens,
+    - feed concrete validation issues into the prompt as grounded evidence,
+    - and verify whether the model's proposed correction is actually valid.
+    """
 
     def __init__(self, schema_file: Any) -> None:
-        """Create a validator with a cached parsed schema."""
+        """Create a validator with a parsed schema cached in memory.
+
+        The schema is built once at construction time because troubleshooting
+        requests may validate both the original operation and a model-proposed
+        correction in the same tool run.
+        """
         self.schema_file = schema_file
         self.schema = self._build_schema()
 
     def validate(self, graphql_call: str) -> list[str]:
-        """Return GraphQL syntax and schema issues for a submitted operation."""
+        """Return parser and schema-validation issues for a submitted operation.
+
+        The output is a normalized list of human-readable issues that can be
+        reused both as API-facing diagnostics and as grounded prompt context
+        for corrective generation.
+        """
         try:
             from graphql import parse, validate
         except ImportError as exc:
@@ -108,15 +132,27 @@ class GraphQLValidator:
 
 
 class SchemaContextRetriever:
-    """Retriever that caches RAG schema context for troubleshooting."""
+    """Lightweight schema-context retriever for troubleshooting prompts.
+
+    Troubleshooting and sample generation both use retrieval-augmented
+    prompting, but the retrieval query here is optimized for error analysis
+    rather than synthesis. The retriever also caches context per root field so
+    repeated troubleshooting calls avoid redundant vector lookups.
+    """
 
     def __init__(self, schema_context_provider: SchemaContextProvider) -> None:
-        """Create a retriever with an in-memory cache per root field."""
+        """Create a retriever with in-memory caching keyed by root field."""
         self.schema_context_provider = schema_context_provider
         self._cache: dict[str, str] = {}
 
     def retrieve(self, root_field: str) -> str:
-        """Retrieve RAG schema context for the root field being troubleshot."""
+        """Retrieve prompt-ready schema context for the field under analysis.
+
+        The returned text is not the entire schema. It is the narrowed context
+        retrieved from the RAG layer and injected into the troubleshooting
+        prompt to reduce prompt size while preserving relevant type and field
+        definitions.
+        """
         if root_field not in self._cache:
             self._cache[root_field] = self.schema_context_provider.retrieve_schema_context(
                 f"Troubleshoot GraphQL Query or Mutation root field {root_field}"
@@ -126,7 +162,23 @@ class SchemaContextRetriever:
 
 
 class TroubleshootingTool:
-    """Assistant tool that troubleshoots user-provided GraphQL operations."""
+    """Assistant tool for GraphQL validation and corrective suggestion.
+
+    This tool owns the "troubleshoot a GraphQL operation" business workflow.
+    It combines deterministic GraphQL validation with targeted LLM reasoning:
+
+    1. Normalize the submitted root field and operation text.
+    2. Validate the operation against the current schema.
+    3. Return immediately when the operation is already valid.
+    4. Retrieve focused schema context through the RAG layer.
+    5. Prompt the LLM with validation issues, schema context, and the original
+       operation to produce an explanation plus a corrected candidate.
+    6. Re-validate the suggested correction before returning it.
+
+    This keeps the model in a constrained correction role instead of asking it
+    to infer schema truth from scratch. The validation-repair-validation loop
+    is the main hallucination-control technique in this workflow.
+    """
 
     def __init__(
         self,
@@ -136,7 +188,14 @@ class TroubleshootingTool:
         schema_context_provider: SchemaContextProvider | None = None,
         allow_downloads: bool = False,
     ) -> None:
-        """Create a troubleshooting tool with injectable infrastructure dependencies."""
+        """Create the troubleshooting tool with injectable validator/RAG/LLM dependencies.
+
+        The default wiring uses the configured schema file, vector-store-backed
+        schema retrieval, and the troubleshooting LLM namespace. Tests can swap
+        in fakes for deterministic behavior. The tool keeps its own inference
+        lock because corrective prompting is usually served by the same local
+        model runtime as generation.
+        """
         self.settings = settings or get_settings()
         self.llm_client = llm_client or self._build_default_llm_client()
         self.llm_pre_warmer = llm_pre_warmer or LLMPreWarmer(self.settings, self.llm_client)
@@ -149,7 +208,19 @@ class TroubleshootingTool:
         self._inference_lock = Lock()
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
-        """Troubleshoot a user-submitted GraphQL operation."""
+        """Analyze a submitted operation and return validation-aware guidance.
+
+        The method first runs deterministic validation. If the submitted
+        operation is already valid, it returns a `valid` result without calling
+        the LLM. Otherwise it performs retrieval-augmented corrective
+        generation, parses the model response into explanation/detail and a
+        suggested operation, then re-validates that suggestion before exposing
+        it to the caller.
+
+        This two-pass validation strategy is the key business rule: the tool
+        can explain model output, but it does not trust model output until the
+        schema validator accepts it.
+        """
         normalized_root_field, normalized_graphql_call = validate_troubleshooting_input(root_field, graphql_call)
         validation_issues = self.validator.validate(normalized_graphql_call)
         if not validation_issues:
