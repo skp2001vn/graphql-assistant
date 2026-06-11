@@ -8,7 +8,25 @@ from graphql_assistant.llm.base import LLMClient
 
 
 class LLMClientAgnoModel:
-    """Agno model wrapper around the app's existing LLM client."""
+    """Adapter from the app's `LLMClient` protocol to Agno's model interface.
+
+    The rest of the application talks to providers through the small local
+    `LLMClient` protocol, while Agno expects an object that implements its own
+    `Model` contract. This adapter bridges those two shapes so the assistant
+    layer can use Agno for planning without rewriting the provider stack.
+
+    The adapter is intentionally narrow:
+
+    1. flatten Agno messages into one prompt string
+    2. send that prompt through the existing `LLMClient`
+    3. wrap the returned text in Agno's `ModelResponse`
+
+    It does not currently implement provider-native tool calling, structured
+    response transport, or richer multimodal semantics. In this codebase that
+    is intentional: Agno is presently used as a structured orchestration layer
+    over a plain text-generation boundary, not as a fully provider-native agent
+    runtime.
+    """
 
     def __new__(cls, llm_client: LLMClient) -> Any:
         try:
@@ -58,6 +76,13 @@ class LLMClientAgnoModel:
 
 
 def _format_agno_messages(messages: list[Any]) -> str:
+    """Flatten Agno message objects into the prompt format used by `LLMClient`.
+
+    The local provider clients accept one prompt string rather than a chat
+    message array. This helper preserves the role ordering from Agno's message
+    list and converts each message into a readable text block so the wrapped
+    provider still receives the full conversation context in sequence.
+    """
     prompt_parts = []
     for message in messages:
         content = getattr(message, "content", None)
