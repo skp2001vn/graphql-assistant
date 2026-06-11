@@ -49,7 +49,22 @@ class AssistantPromptEvalCase:
 
 @dataclass(frozen=True)
 class SamplePromptEvalCase:
-    """Prompt evaluation case for sample GraphQL generation."""
+    """Case definition for sample-generation prompt evaluation.
+
+    These cases focus on the output contract of `SampleTool` rather than the
+    assistant planner. Each case describes the requested root field plus the
+    expected operation shape that should come back after generation:
+
+    1. operation name, when a stable name is expected
+    2. declared variables
+    3. arguments applied to the requested root field
+    4. a few key selections on that root field
+
+    Schema validation still carries most of the correctness burden. The shape
+    assertions exist to catch "valid but wrong" generations such as choosing
+    the wrong root field, dropping required arguments, or emitting a list query
+    when the request was for a singular field.
+    """
 
     name: str
     root_field: str
@@ -61,7 +76,17 @@ class SamplePromptEvalCase:
 
 @dataclass(frozen=True)
 class TroubleshootingPromptEvalCase:
-    """Prompt evaluation case for GraphQL troubleshooting."""
+    """Case definition for troubleshooting prompt evaluation.
+
+    Troubleshooting cases cover two distinct business paths:
+
+    1. an invalid operation that should produce a valid correction
+    2. an already-valid operation that should short-circuit without repair
+
+    The case stores the submitted operation plus the expected post-troubleshoot
+    status and, for corrective paths, the shape the suggested operation should
+    have after validation and repair.
+    """
 
     name: str
     root_field: str
@@ -75,7 +100,14 @@ class TroubleshootingPromptEvalCase:
 
 @dataclass(frozen=True)
 class PromptEvalResult:
-    """Prompt evaluation result with simple pass/fail checks."""
+    """Normalized result for one prompt-eval case run.
+
+    The eval runner keeps reporting intentionally lightweight: each case
+    produces a workflow label, a case name, a final pass/fail bit, and the
+    individual human-readable checks that led to that outcome. This makes the
+    CLI output easy to scan without introducing a separate reporting format or
+    persistence layer.
+    """
 
     workflow: str
     name: str
@@ -86,7 +118,13 @@ class PromptEvalResult:
 
 @dataclass(frozen=True)
 class OperationShape:
-    """Parsed GraphQL operation properties used for prompt eval assertions."""
+    """Small parsed view of a GraphQL operation for eval scoring.
+
+    Prompt eval does not need a full semantic model of the operation. It only
+    needs the pieces that distinguish a correct generation from a merely valid
+    one: operation name, selected root field, declared variables, root-field
+    arguments, and first-level selections on that root field.
+    """
 
     operation_name: str | None
     root_field_name: str | None
@@ -253,14 +291,19 @@ def run_assistant_prompt_eval_cases(
 ) -> list[PromptEvalResult]:
     """Run end-to-end prompt eval cases through the assistant workflow.
 
-    This is the most relevant eval for the current architecture because it
-    covers both the Agno-backed intent planner and the selected downstream
-    tool. The scoring remains intentionally simple:
+    This is the highest-value eval for the current architecture because it
+    exercises the whole `/assistant` business path:
 
-    - verify the assistant chooses the expected workflow,
-    - score the returned generation or troubleshooting result with existing
-      GraphQL guardrails,
-    - and verify unsupported goals are rejected explicitly.
+    1. normalize the natural-language assistant request
+    2. let the Agno-backed planner choose a workflow
+    3. execute the downstream generation or troubleshooting tool
+    4. score the returned result with deterministic GraphQL guardrails
+
+    The scoring is still intentionally lightweight. It checks intent routing,
+    output validity, a few operation-shape expectations, and explicit handling
+    of unsupported goals. That keeps the eval cheap enough for routine local
+    use while still catching the regressions this application is most likely to
+    ship.
     """
     results = []
 
@@ -307,11 +350,17 @@ def run_sample_prompt_eval_cases(
 ) -> list[PromptEvalResult]:
     """Run sample-generation prompt evaluation cases.
 
-    Each case calls the real sample-generation workflow, then scores the output
-    with the same guardrails used by the API: GraphQL schema validation,
-    variable-usage validation, and a few simple expected-text checks. This keeps
-    prompt evaluation educational and deterministic without adding a separate
-    eval framework.
+    Each case runs the real sample-generation workflow, then scores the output
+    with the same deterministic guardrails the application already trusts:
+
+    1. schema validation for the generated operation
+    2. variable-usage validation for the returned Variables JSON
+    3. operation-shape checks for the requested root field
+
+    The intent is not to grade style or completeness exhaustively. It is to
+    catch the practical failure modes that matter for this tool: wrong root
+    field, wrong argument shape, missing variables, or a valid GraphQL query
+    that answers a different request than the one the user made.
     """
     results = []
     schema_file = tool.settings.schema_file
@@ -334,10 +383,18 @@ def run_troubleshooting_prompt_eval_cases(
 ) -> list[PromptEvalResult]:
     """Run troubleshooting prompt evaluation cases.
 
-    Each case submits an intentionally invalid GraphQL operation to the
-    troubleshooting tool, then checks that the tool reports issues, produces
-    user-facing detail text, returns a suggestion, and that the suggestion
-    validates against the schema.
+    Each case runs the real troubleshooting workflow and then scores the result
+    against the contract the application exposes:
+
+    1. invalid requests should report issues and, when possible, return a valid
+       corrected operation
+    2. already-valid requests should short-circuit with `status="valid"` and
+       no repair payload
+    3. suggested corrections should target the requested root field and keep a
+       sensible operation shape
+
+    This keeps the eval aligned with the business purpose of the tool rather
+    than only checking that some text came back from the model.
     """
     results = []
 
