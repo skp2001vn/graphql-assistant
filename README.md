@@ -1,29 +1,60 @@
-# GraphQL Assistant Examples
+# GraphQL Assistant
 
-A small example project for generating GraphQL operations and troubleshooting GraphQL queries from a local schema.
+`graphql_assistant` generates and troubleshoots GraphQL operations from a local schema `*.graphql` files located in the `resources/` folder.
 
-- Sample generation uses RAG.
-- Troubleshooting uses a tool-using agent.
-- Supports Ollama and OpenAI.
+The application exposes one assistant surface, `/assistant`, and supports two workflows:
 
-The application generates and validates GraphQL operations from schema files located in the `resources/` folder (typically `*.graphql` files).
+- generate a sample GraphQL operation for a root field
+- troubleshoot a submitted GraphQL operation against the active schema
 
-## Overview
+The application supports OpenAI API and local Ollama.
 
-This project demonstrates two AI workflows:
+## AI Concepts Covered
 
-- Sample GraphQL generation using RAG.
-- GraphQL troubleshooting using a small agent workflow.
+This project highlights common AI application patterns:
 
-Key concepts:
+- RAG: retrieves schema context before generation.
+- Embeddings: converts GraphQL SDL chunks into vectors.
+- Vector store: persists schema embeddings in Chroma.
+- Retrieval: selects schema chunks relevant to the requested root field.
+- Prompt construction: combines system instructions, retrieved context, and the root-field request.
+- Prompt compression: keeps retrieved schema context compact for local inference.
+- Inference: sends the final prompt to a configured LLM provider.
+- Inference cache: reuses responses for identical prompts and model settings.
+- Model pre-warm: loads the local model during API startup to reduce first-request latency.
+- Guardrails: validates input and generated GraphQL before returning it.
+- Agent: coordinates a goal, planner decision, tool execution, and inference through the unified assistant surface.
+- Plan: the assistant reduces the user request to a structured intent such as `generate_sample`, `troubleshoot`, or `unsupported`.
+- Tools: deterministic helpers and focused workflows for sample generation, GraphQL validation, and schema-aware troubleshooting.
+- Tool observations: schema validation issues and retrieved schema context passed into inference for corrective prompting.
+- Prompt evaluation: runs fixed assistant cases and scores model output with existing GraphQL guardrails.
+- Model routing: future extension point for selecting providers or models per workflow.
 
-- RAG (retrieval-augmented generation)
-- Embeddings and vector search
-- LLM inference (Ollama or OpenAI)
-- Output validation (guardrails)
-- Agno-backed assistant planning
-- Assistant tools
-- GraphQL schema-driven generation and validation
+## RAG Pipeline
+
+The RAG path for sample generation is:
+
+1. read `resources/schema.graphql`
+2. split the SDL into schema chunks
+3. embed those chunks with a local `sentence-transformers` model
+4. store the embeddings in a local Chroma index
+5. run retrieval to select schema context for the requested root field
+6. build the final prompt from system instructions, schema context, and the root-field request
+7. check the local inference cache for the final prompt
+8. send only uncached prompt context to the configured LLM provider for inference
+9. apply GraphQL guardrails and return the GraphQL operation plus Variables JSON
+
+Because `resources/schema.graphql` is rarely updated, the Chroma index is cached and reused after the first run.
+
+## Assistant Flow
+
+The assistant layer is intentionally small:
+
+- `GraphQLAssistantAgent` normalizes the request and asks Agno to classify the goal
+- `SampleTool` handles sample generation
+- `TroubleshootingTool` handles validation-aware troubleshooting and corrective suggestion
+
+Agno is used only for structured workflow planning.
 
 ## Setup
 
@@ -44,32 +75,33 @@ ollama pull qwen2.5-coder:3b
 
 On macOS, use `brew install --cask ollama-app`. The `brew install ollama` formula can install without the required `llama-server` runtime binary.
 
-## Run
+## CLI
+
+Generate a sample operation:
 
 ```bash
 source .venv/bin/activate
 .venv/bin/python -m graphql_assistant.cli "Generate a sample query" country
 ```
 
-The first run builds the local Chroma index. Later runs reuse it automatically. If you edit `resources/schema.graphql`, the app detects the schema change and rebuilds the index.
-
-To force a rebuild:
+Force a schema-index rebuild:
 
 ```bash
 .venv/bin/python -m graphql_assistant.cli --rebuild "Generate a sample query" country
 ```
 
-To use OpenAI instead of Ollama:
-
-```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.2 .venv/bin/python -m graphql_assistant.cli "Generate a sample query" country
-```
-
-To troubleshoot from the CLI:
+Troubleshoot a GraphQL operation:
 
 ```bash
 .venv/bin/python -m graphql_assistant.cli "Troubleshoot this operation" country \
   --graphql-call 'query CountryQuery { country { code1 } }'
+```
+
+Use OpenAI instead of Ollama:
+
+```bash
+LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.2 \
+.venv/bin/python -m graphql_assistant.cli "Generate a sample query" country
 ```
 
 ## API
@@ -78,10 +110,10 @@ Start the API:
 
 ```bash
 source .venv/bin/activate
-uvicorn graphql_assistant.main:app --host 0.0.0.0 --port 8080
+.venv/bin/uvicorn graphql_assistant.main:app --host 0.0.0.0 --port 8080
 ```
 
-Ask the assistant to generate a sample operation:
+Generate a sample operation:
 
 ```bash
 curl -X POST http://localhost:8080/assistant \
@@ -92,26 +124,9 @@ curl -X POST http://localhost:8080/assistant \
   }'
 ```
 
-The response is JSON:
-
-```json
-{
-  "type": "sample",
-  "operation": ["..."],
-  "variables": {
-    "code": "US"
-  },
-  "root_field": null,
-  "status": null,
-  "issues": null,
-  "detail": null,
-  "suggestion": null
-}
-```
-
 `root_field` is the GraphQL Query or Mutation field to generate, such as `country` or `countries`.
 
-Ask the assistant to troubleshoot a GraphQL operation:
+Troubleshoot a GraphQL operation:
 
 ```bash
 curl -X POST http://localhost:8080/assistant \
@@ -123,43 +138,36 @@ curl -X POST http://localhost:8080/assistant \
   }'
 ```
 
-The response is JSON:
+When the submitted GraphQL operation is already valid, the troubleshooting workflow returns `status: "valid"` with empty `issues`, `detail`, and `suggestion` fields.
 
-```json
-{
-  "type": "troubleshooting",
-  "operation": null,
-  "variables": null,
-  "root_field": "country",
-  "status": "invalid",
-  "issues": ["..."],
-  "detail": ["..."],
-  "suggestion": ["..."]
-}
+The main response fields are:
+
+- `type`: `sample` or `troubleshooting`
+- `operation`: generated GraphQL operation lines for sample generation
+- `variables`: generated Variables JSON for sample generation
+- `root_field`: root field under troubleshooting
+- `status`: `valid` or `invalid` for troubleshooting
+- `issues`: deterministic GraphQL validation issues
+- `detail`: short user-facing explanation of the correction
+- `suggestion`: corrected GraphQL operation lines when the tool can produce a valid fix
+
+## Prompt Evaluation
+
+Run assistant-level prompt evals:
+
+```bash
+.venv/bin/python -m graphql_assistant.evaluation.prompt_eval
 ```
 
-When the submitted GraphQL operation is valid, troubleshooting returns empty issue and guidance fields:
+Filter by assistant intent:
 
-```json
-{
-  "type": "troubleshooting",
-  "operation": null,
-  "variables": null,
-  "root_field": "country",
-  "status": "valid",
-  "issues": [],
-  "detail": [],
-  "suggestion": []
-}
+```bash
+.venv/bin/python -m graphql_assistant.evaluation.prompt_eval --intent generate_sample
+.venv/bin/python -m graphql_assistant.evaluation.prompt_eval --intent troubleshoot
+.venv/bin/python -m graphql_assistant.evaluation.prompt_eval --intent unsupported
 ```
 
-The troubleshooting workflow validates the operation, retrieves relevant schema context, generates guidance, and returns a corrected operation when possible.
-
-Response fields:
-
-- `issues`: validation errors.
-- `detail`: explanation of the problem.
-- `suggestion`: corrected GraphQL operation.
+The eval runner exercises the public assistant flow and scores outputs with the same schema guardrails used by the app.
 
 ## Tests
 
@@ -167,7 +175,7 @@ Run the test suite:
 
 ```bash
 source .venv/bin/activate
-python -m unittest discover -s tests
+.venv/bin/python -m unittest discover -s tests
 ```
 
 The tests use fake LLM and schema-context providers, so they do not require Chroma, the embedding model, a running Ollama server, or an OpenAI API key.
@@ -176,19 +184,22 @@ The tests use fake LLM and schema-context providers, so they do not require Chro
 
 ```text
 graphql_assistant/
-  agents/    assistant planner and tools
-  api/       FastAPI routes and schemas
-  core/      shared settings and interfaces
-  domain/    domain models
-  llm/       LLM providers
-  rag/       schema retrieval
+  agents/      assistant planner and tools
+  api/         FastAPI routes and schemas
+  core/        shared settings and interfaces
+  domain/      domain models
+  llm/         LLM clients, caching, and Agno adapter
+  rag/         schema chunking, embeddings, and vector retrieval
+  evaluation/  prompt eval runner
 tests/
+resources/
 ```
 
-Design principles:
+## Design Notes
 
 - Routes stay thin.
-- The assistant agent owns workflow selection.
-- Assistant tools contain GraphQL workflow logic.
+- The assistant owns workflow selection.
+- Assistant tools own GraphQL workflow logic.
 - RAG concerns stay in `rag/`.
 - LLM access stays in `llm/`.
+- GraphQL validation remains deterministic even when the workflow uses LLM inference.
