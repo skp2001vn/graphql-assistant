@@ -79,7 +79,6 @@ class FakeMainSampleTool:
     def __init__(self, rebuild_index: bool = False) -> None:
         self.settings = type("Settings", (), {"schema_file": Path("schema.graphql")})()
         self.llm_client = object()
-        self.llm_pre_warmer = FakeLLMPreWarmer()
         self.schema_context_provider = object()
         self.rebuild_index = rebuild_index
 
@@ -311,10 +310,11 @@ query CountryQuery($code: ID!) {
         with patch("sys.argv", ["prompt-eval", "--intent", "generate_sample"]):
             with patch("graphql_assistant.evaluation.prompt_eval.SampleTool", FakeMainSampleTool):
                 with patch("graphql_assistant.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
-                    with patch("graphql_assistant.evaluation.prompt_eval.GraphQLAssistantAgent", FakeMainAssistant):
-                        with patch("graphql_assistant.evaluation.prompt_eval.run_assistant_prompt_eval_cases", return_value=[result]):
-                            with redirect_stdout(output):
-                                prompt_eval.main()
+                    with patch("graphql_assistant.evaluation.prompt_eval.LLMPreWarmer", return_value=FakeLLMPreWarmer()):
+                        with patch("graphql_assistant.evaluation.prompt_eval.GraphQLAssistantAgent", FakeMainAssistant):
+                            with patch("graphql_assistant.evaluation.prompt_eval.run_assistant_prompt_eval_cases", return_value=[result]):
+                                with redirect_stdout(output):
+                                    prompt_eval.main()
 
         self.assertIn("[PASS] assistant: case", output.getvalue())
         self.assertIn("Summary: 1/1 passed", output.getvalue())

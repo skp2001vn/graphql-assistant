@@ -30,7 +30,6 @@ async def lifespan(app: FastAPI):
     sample_tool = SampleTool(
         settings=settings,
         llm_client=llm_client,
-        llm_pre_warmer=llm_pre_warmer,
         schema_context_provider=schema_context_provider,
     )
     troubleshooting_tool = TroubleshootingTool(

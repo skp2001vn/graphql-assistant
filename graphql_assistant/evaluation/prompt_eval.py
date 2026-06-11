@@ -17,6 +17,7 @@ from graphql_assistant.agents.tools import (
     validate_variable_usage,
 )
 from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant.llm.pre_warm import LLMPreWarmer
 
 
 AssistantEvalIntent = Literal["generate_sample", "troubleshoot", "unsupported"]
@@ -303,11 +304,12 @@ def main() -> None:
     """Run prompt evaluation cases against the public assistant workflow."""
     args = parse_args()
     sample_tool = SampleTool(rebuild_index=args.rebuild)
-    sample_tool.llm_pre_warmer.pre_warm()
+    llm_pre_warmer = LLMPreWarmer(sample_tool.settings, sample_tool.llm_client)
+    llm_pre_warmer.pre_warm()
     troubleshooting_tool = TroubleshootingTool(
         settings=sample_tool.settings,
         llm_client=sample_tool.llm_client,
-        llm_pre_warmer=sample_tool.llm_pre_warmer,
+        llm_pre_warmer=llm_pre_warmer,
         schema_context_provider=sample_tool.schema_context_provider,
     )
     assistant = GraphQLAssistantAgent(

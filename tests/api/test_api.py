@@ -262,7 +262,6 @@ class ApiTest(unittest.TestCase):
         sample_tool_class.assert_called_once_with(
             settings=settings,
             llm_client=llm_client,
-            llm_pre_warmer=pre_warmer,
             schema_context_provider=schema_context_provider,
         )
         troubleshooting_tool_class.assert_called_once_with(

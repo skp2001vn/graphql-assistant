@@ -10,7 +10,6 @@ from graphql_assistant.core.protocols import SchemaContextProvider
 from graphql_assistant.domain import GeneratedGraphQLSample
 from graphql_assistant.llm.base import LLMClient
 from graphql_assistant.llm.factory import build_llm_client
-from graphql_assistant.llm.pre_warm import LLMPreWarmer
 from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 
@@ -79,7 +78,6 @@ class SampleTool:
         self,
         settings: AppSettings | None = None,
         llm_client: LLMClient | None = None,
-        llm_pre_warmer: LLMPreWarmer | None = None,
         schema_context_provider: SchemaContextProvider | None = None,
         rebuild_index: bool = False,
         allow_downloads: bool = False,
@@ -100,7 +98,6 @@ class SampleTool:
             allow_downloads=allow_downloads,
         )
         self.llm_client = llm_client or self._build_default_llm_client()
-        self.llm_pre_warmer = llm_pre_warmer or LLMPreWarmer(self.settings, self.llm_client)
         self._generation_lock = Lock()
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
@@ -169,23 +166,7 @@ def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:
     """Parse model output into a GraphQL operation and Variables JSON."""
     code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
     operation = code_blocks[0].strip() if code_blocks else raw_response.strip()
-    declared_variables = _declared_variable_types(operation)
-    variables: dict[str, Any] = {}
-
-    if len(code_blocks) > 1:
-        variables_text = code_blocks[1].strip()
-        if variables_text:
-            try:
-                parsed_variables = json.loads(variables_text)
-            except json.JSONDecodeError:
-                parsed_variables = {"_raw": variables_text}
-
-            if isinstance(parsed_variables, dict):
-                variables = _filter_variables_to_operation(parsed_variables, declared_variables)
-
-    inferred_variables = _infer_variables_from_operation(operation)
-    for variable_name, value in inferred_variables.items():
-        variables.setdefault(variable_name, value)
+    variables = _normalize_variables(operation, _parse_variables_block(code_blocks))
 
     return GeneratedGraphQLSample(
         operation=operation,
@@ -193,34 +174,40 @@ def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:
         raw_response=raw_response,
     )
 
+def _parse_variables_block(code_blocks: list[str]) -> dict[str, Any]:
+    if len(code_blocks) <= 1:
+        return {}
 
-def _declared_variable_types(operation: str) -> dict[str, str]:
-    return {variable_name: type_ref for variable_name, type_ref in VARIABLE_DEFINITION.findall(operation)}
+    variables_text = code_blocks[1].strip()
+    if not variables_text:
+        return {}
+
+    try:
+        parsed_variables = json.loads(variables_text)
+    except json.JSONDecodeError:
+        return {"_raw": variables_text}
+
+    return parsed_variables if isinstance(parsed_variables, dict) else {}
 
 
-def _filter_variables_to_operation(
-    variables: dict[str, Any],
-    declared_variables: dict[str, str],
-) -> dict[str, Any]:
-    filtered_variables: dict[str, Any] = {}
+def _normalize_variables(operation: str, variables: dict[str, Any]) -> dict[str, Any]:
+    normalized_variables = _infer_variables_from_operation(operation)
 
     for variable_name, value in variables.items():
         if variable_name.startswith("_"):
-            filtered_variables[variable_name] = value
+            normalized_variables[variable_name] = value
             continue
-        if variable_name in declared_variables:
-            filtered_variables[variable_name] = value
+        if variable_name in normalized_variables:
+            normalized_variables[variable_name] = value
 
-    return filtered_variables
+    return normalized_variables
 
 
 def _infer_variables_from_operation(operation: str) -> dict[str, Any]:
-    inferred_variables: dict[str, Any] = {}
-
-    for variable_name, type_ref in _declared_variable_types(operation).items():
-        inferred_variables[variable_name] = _sample_value_for_graphql_type(variable_name, type_ref)
-
-    return inferred_variables
+    return {
+        variable_name: _sample_value_for_graphql_type(variable_name, type_ref)
+        for variable_name, type_ref in VARIABLE_DEFINITION.findall(operation)
+    }
 
 
 def _sample_value_for_graphql_type(variable_name: str, type_ref: str) -> Any:
