@@ -14,20 +14,17 @@ GraphQLAssistantIntent = Literal["generate_sample", "troubleshoot"]
 GraphQLAssistantOutput = GeneratedGraphQLSample | TroubleshootingResult
 
 PLANNER_SYSTEM_PROMPT = """You are a GraphQL assistant workflow planner.
-Choose the correct tool plan for a user's natural-language goal.
+Choose the correct workflow intent for a user's natural-language goal.
 
-Available tools:
-- sample_query.generate: Generate a sample GraphQL operation for one Query or Mutation root field.
-- troubleshooting.troubleshoot: Troubleshoot a submitted GraphQL operation.
+Available intents:
+- generate_sample: Generate a sample GraphQL operation for one Query or Mutation root field.
+- troubleshoot: Troubleshoot a submitted GraphQL operation.
 
 Rules:
 - Return only JSON. Do not wrap the JSON in markdown.
-- Use exactly one tool step.
-- Use sample_query.generate when the user asks to generate, create, or show a sample GraphQL query or operation.
-- Use troubleshooting.troubleshoot when the user asks to fix, debug, validate, troubleshoot, or explain what is wrong with a GraphQL operation.
-- The request root_field is authoritative. Do not change it.
-- If the request includes graphql_call, copy it exactly into troubleshooting tool inputs.
-- Do not invent a graphql_call.
+- Use generate_sample when the user asks to generate, create, or show a sample GraphQL query or operation.
+- Use troubleshoot when the user asks to fix, debug, validate, troubleshoot, or explain what is wrong with a GraphQL operation.
+- Do not return request inputs. The application owns tool inputs.
 
 Return a response matching the configured structured output schema.
 """
@@ -86,28 +83,18 @@ class GraphQLAssistantResult:
     raw_plan_response: str
 
 
-class PlannerStepOutput(BaseModel):
-    """Structured Agno planner output for one assistant tool step."""
-
-    tool_name: Literal["sample_query.generate", "troubleshooting.troubleshoot"] = Field(
-        description="Assistant tool selected for the request."
-    )
-    inputs: dict[str, str] = Field(description="Tool inputs copied from the request.")
-    reason: str = Field(description="Short reason for selecting this tool.")
-
-
-class PlannerOutput(BaseModel):
-    """Structured Agno planner output for the assistant workflow."""
+class IntentOutput(BaseModel):
+    """Structured Agno output for assistant workflow selection."""
 
     intent: GraphQLAssistantIntent
-    steps: list[PlannerStepOutput]
+    reason: str = Field(description="Short reason for selecting this intent.")
 
 
 class AssistantPlanner(Protocol):
     """Planner interface used by the assistant agent."""
 
-    def plan(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, AgentPlanStep, str]:
-        """Return a validated intent, step, and raw planner response."""
+    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, str, str]:
+        """Return the selected intent, reason, and raw planner response."""
 
 
 class LLMClientAgnoModel:
@@ -161,7 +148,7 @@ class LLMClientAgnoModel:
 
 
 class AgnoAssistantPlanner:
-    """Agno-backed structured planner for GraphQL assistant tool selection."""
+    """Agno-backed structured planner for GraphQL assistant intent selection."""
 
     def __init__(self, llm_client: LLMClient) -> None:
         """Create an Agno planner over the configured application LLM client."""
@@ -173,34 +160,21 @@ class AgnoAssistantPlanner:
         self.agent = Agent(
             model=LLMClientAgnoModel(llm_client),
             instructions=PLANNER_SYSTEM_PROMPT,
-            output_schema=PlannerOutput,
+            output_schema=IntentOutput,
             parse_response=True,
             use_json_mode=True,
             telemetry=False,
         )
 
-    def plan(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, AgentPlanStep, str]:
-        """Run the Agno planner and return the selected assistant tool step."""
+    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, str, str]:
+        """Run the Agno planner and return the selected assistant intent."""
         response = self.agent.run(_build_planner_input(goal))
         content = response.content
-        if not isinstance(content, PlannerOutput):
+        if not isinstance(content, IntentOutput):
             raise AgentPlanningError("Planner response did not match the structured output schema.")
 
         raw_plan_response = content.model_dump_json()
-        if len(content.steps) != 1:
-            raise AgentPlanningError("Planner must return exactly one tool step.")
-
-        step_output = content.steps[0]
-        if not step_output.reason.strip():
-            raise AgentPlanningError("Planner step must include a non-empty `reason`.")
-
-        step = AgentPlanStep(
-            name=_tool_step_name(step_output.tool_name),
-            tool_name=step_output.tool_name,
-            inputs=dict(step_output.inputs),
-            reason=step_output.reason.strip(),
-        )
-        return content.intent, step, raw_plan_response
+        return content.intent, content.reason.strip(), raw_plan_response
 
 
 class GraphQLAssistantAgent:
@@ -230,8 +204,8 @@ class GraphQLAssistantAgent:
         if not normalized_goal.root_field:
             raise AgentPlanningError("Assistant request `root_field` must not be empty.")
 
-        intent, step, raw_plan_response = self.planner.plan(normalized_goal)
-        self._validate_planned_step(normalized_goal, intent, step)
+        intent, reason, raw_plan_response = self._choose_intent(normalized_goal)
+        step = _build_step(normalized_goal, intent, reason)
         tool_call = ToolCall(tool_name=step.tool_name, inputs=dict(step.inputs))
 
         if step.tool_name == "sample_query.generate":
@@ -253,27 +227,8 @@ class GraphQLAssistantAgent:
             raw_plan_response=raw_plan_response,
         )
 
-    def _validate_planned_step(
-        self,
-        goal: GraphQLAssistantGoal,
-        intent: GraphQLAssistantIntent,
-        step: AgentPlanStep,
-    ) -> None:
-        expected_tool = {
-            "generate_sample": "sample_query.generate",
-            "troubleshoot": "troubleshooting.troubleshoot",
-        }[intent]
-        if step.tool_name != expected_tool:
-            raise AgentPlanningError("Planner intent and tool do not match.")
-        if step.inputs.get("root_field") != goal.root_field:
-            raise AgentPlanningError(f"Planner must use request `root_field` exactly: {goal.root_field}.")
-        if intent == "troubleshoot":
-            if goal.graphql_call is None:
-                raise AgentPlanningError(
-                    "Troubleshooting requires `graphql_call`. Include the GraphQL operation in the request body."
-                )
-            if step.inputs.get("graphql_call") != goal.graphql_call:
-                raise AgentPlanningError("Planner must use request `graphql_call` exactly.")
+    def _choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, str, str]:
+        return self.planner.choose_intent(goal)
 
 
 def _build_planner_input(goal: GraphQLAssistantGoal) -> str:
@@ -281,6 +236,26 @@ def _build_planner_input(goal: GraphQLAssistantGoal) -> str:
         goal=goal.goal,
         root_field=goal.root_field,
         graphql_call=goal.graphql_call or "<not provided>",
+    )
+
+
+def _build_step(goal: GraphQLAssistantGoal, intent: GraphQLAssistantIntent, reason: str) -> AgentPlanStep:
+    if intent == "generate_sample":
+        tool_name = "sample_query.generate"
+        inputs = {"root_field": goal.root_field}
+    else:
+        if goal.graphql_call is None:
+            raise AgentPlanningError(
+                "Troubleshooting requires `graphql_call`. Include the GraphQL operation in the request body."
+            )
+        tool_name = "troubleshooting.troubleshoot"
+        inputs = {"root_field": goal.root_field, "graphql_call": goal.graphql_call}
+
+    return AgentPlanStep(
+        name=_tool_step_name(tool_name),
+        tool_name=tool_name,
+        inputs=inputs,
+        reason=reason or f"Selected {intent}.",
     )
 
 

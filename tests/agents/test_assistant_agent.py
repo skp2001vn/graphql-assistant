@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from graphql_ai.agents import AgentPlanningError, GraphQLAssistantAgent, GraphQLAssistantGoal
-from graphql_ai.agents.assistant_agent import AgentPlanStep, AgnoAssistantPlanner
+from graphql_ai.agents.assistant_agent import AgnoAssistantPlanner
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
 
 
@@ -47,44 +47,34 @@ class FakeTroubleshootingTool:
 
 
 class FakePlanner:
-    def __init__(self, intent: str, step: AgentPlanStep, raw_response: str = "{}") -> None:
+    def __init__(self, intent: str, reason: str = "selected", raw_response: str = "{}") -> None:
         self.intent = intent
-        self.step = step
+        self.reason = reason
         self.raw_response = raw_response
         self.goals: list[GraphQLAssistantGoal] = []
 
-    def plan(self, goal: GraphQLAssistantGoal) -> tuple[str, AgentPlanStep, str]:
+    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[str, str, str]:
         self.goals.append(goal)
-        return self.intent, self.step, self.raw_response
+        return self.intent, self.reason, self.raw_response
 
 
 class GraphQLAssistantAgentTest(unittest.TestCase):
     def test_agno_planner_uses_structured_output(self) -> None:
         llm_client = FakeLLMClient(
-            '{"intent":"generate_sample","steps":[{"tool_name":"sample_query.generate",'
-            '"inputs":{"root_field":"country"},"reason":"The user asked for a sample query."}]}'
+            '{"intent":"generate_sample","reason":"The user asked for a sample query."}'
         )
 
-        intent, step, raw_response = AgnoAssistantPlanner(llm_client).plan(
+        intent, reason, raw_response = AgnoAssistantPlanner(llm_client).choose_intent(
             GraphQLAssistantGoal(goal="Generate a sample query", root_field="country")
         )
 
         self.assertIn("Generate a sample query", llm_client.prompts[0])
         self.assertEqual("generate_sample", intent)
-        self.assertEqual("sample_query.generate", step.tool_name)
-        self.assertEqual({"root_field": "country"}, step.inputs)
+        self.assertEqual("The user asked for a sample query.", reason)
         self.assertIn("generate_sample", raw_response)
 
     def test_sample_goal_uses_plan_and_calls_sample_tool(self) -> None:
-        planner = FakePlanner(
-            "generate_sample",
-            AgentPlanStep(
-                name="Generate sample GraphQL operation",
-                tool_name="sample_query.generate",
-                inputs={"root_field": "country"},
-                reason="The user asked for a sample query.",
-            ),
-        )
+        planner = FakePlanner("generate_sample", "The user asked for a sample query.")
         sample_tool = FakeSampleQueryTool()
         troubleshooting_tool = FakeTroubleshootingTool()
         agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
@@ -101,15 +91,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
 
     def test_troubleshoot_goal_uses_plan_and_calls_troubleshooting_tool(self) -> None:
         graphql_call = "query CountyQuery($code: ID!) { county(code: $code) { code } }"
-        planner = FakePlanner(
-            "troubleshoot",
-            AgentPlanStep(
-                name="Troubleshoot submitted GraphQL operation",
-                tool_name="troubleshooting.troubleshoot",
-                inputs={"root_field": "country", "graphql_call": graphql_call},
-                reason="The user asked to fix a GraphQL operation.",
-            ),
-        )
+        planner = FakePlanner("troubleshoot", "The user asked to fix a GraphQL operation.")
         sample_tool = FakeSampleQueryTool()
         troubleshooting_tool = FakeTroubleshootingTool()
         agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
@@ -128,16 +110,27 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         self.assertEqual("troubleshooting.troubleshoot", result.plan[0].tool_name)
         self.assertIsInstance(result.output, TroubleshootingResult)
 
-    def test_troubleshoot_plan_requires_request_graphql_call(self) -> None:
-        planner = FakePlanner(
-            "troubleshoot",
-            AgentPlanStep(
-                name="Troubleshoot submitted GraphQL operation",
-                tool_name="troubleshooting.troubleshoot",
-                inputs={"root_field": "country"},
-                reason="The user asked to troubleshoot.",
-            ),
+    def test_graphql_call_does_not_force_troubleshooting_intent(self) -> None:
+        graphql_call = "query CountryQuery($code: ID!) { country(code: $code) { code } }"
+        planner = FakePlanner("generate_sample", "The user asked for a fresh sample query.")
+        sample_tool = FakeSampleQueryTool()
+        troubleshooting_tool = FakeTroubleshootingTool()
+        agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
+
+        result = agent.run(
+            GraphQLAssistantGoal(
+                goal="Generate a sample query using this operation as context",
+                root_field="country",
+                graphql_call=graphql_call,
+            )
         )
+
+        self.assertEqual(["country"], sample_tool.root_fields)
+        self.assertEqual([], troubleshooting_tool.requests)
+        self.assertEqual("generate_sample", result.intent)
+
+    def test_troubleshoot_plan_requires_request_graphql_call(self) -> None:
+        planner = FakePlanner("troubleshoot", "The user asked to troubleshoot.")
         agent = GraphQLAssistantAgent(
             FakeLLMClient("unused"),
             FakeSampleQueryTool(),
@@ -147,26 +140,6 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
 
         with self.assertRaisesRegex(AgentPlanningError, "Troubleshooting requires `graphql_call`"):
             agent.run(GraphQLAssistantGoal(goal="Something is wrong with this query", root_field="country"))
-
-    def test_rejects_planner_root_field_change(self) -> None:
-        planner = FakePlanner(
-            "generate_sample",
-            AgentPlanStep(
-                name="Generate sample GraphQL operation",
-                tool_name="sample_query.generate",
-                inputs={"root_field": "countries"},
-                reason="The user asked for a sample query.",
-            ),
-        )
-        agent = GraphQLAssistantAgent(
-            FakeLLMClient("unused"),
-            FakeSampleQueryTool(),
-            FakeTroubleshootingTool(),
-            planner=planner,
-        )
-
-        with self.assertRaisesRegex(AgentPlanningError, "root_field"):
-            agent.run(GraphQLAssistantGoal(goal="Generate a sample query", root_field="country"))
 
 
 if __name__ == "__main__":
