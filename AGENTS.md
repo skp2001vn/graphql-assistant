@@ -73,6 +73,6 @@ curl -X POST http://127.0.0.1:8082/assistant \
   --data '{"goal": "Generate a sample query", "root_field": "country"}'
 curl -X POST http://127.0.0.1:8082/assistant \
   -H "Content-Type: application/json" \
-  --data '{"goal": "Troubleshoot this GraphQL operation", "root_field": "country", "graphql_call": "query CountryQuery { country { code1 } }"}'
+  --data '{"goal": "Troubleshoot this GraphQL operation", "root_field": "country", "graphql_call": "query CountryQuery($code: ID!) { country(code) { code name native emoji capital currency continent { code name } languages { code name } } }"}'
 ```
 ```
