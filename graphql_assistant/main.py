@@ -16,7 +16,11 @@ from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize assistant tools and optionally pre-warm local Ollama inference."""
+    """Initialize assistant tools and optionally pre-warm local Ollama inference.
+
+    With default settings this warms the configured `qwen3:8b` Ollama model at
+    startup so the first assistant request avoids cold-start latency.
+    """
     settings = get_settings()
     schema_context_provider = SchemaVectorStore(settings=settings)
     llm_client = build_llm_client(settings)
@@ -47,7 +51,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="GraphQL Assistant Examples API",
+        title="GraphQL Assistant API",
         version="0.1.0",
         lifespan=lifespan,
         default_response_class=PrettyJSONResponse,

@@ -8,7 +8,8 @@ The application exposes one assistant surface, `/assistant`, and supports workfl
 - troubleshoot a submitted GraphQL query/mutation against the active schema
 - generate mock data and documentation: future extension.
 
-The application supports OpenAI API and local Ollama (by default).
+The application supports OpenAI API and local Ollama. The
+default local model is `qwen3:8b`.
 
 ## AI Concepts Covered 
 
@@ -53,22 +54,35 @@ Agno is used only for structured workflow planning.
 
 ## Setup
 
+Use Python 3.14. The repo's checked-in type-checking target is
+`pythonVersion: "3.14"` and the local environment is currently on Python
+3.14.5.
+
 Run this once while online:
 
 ```bash
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 mkdir -p resources/models
 python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2').save_pretrained('resources/models/all-MiniLM-L6-v2')"
 
 brew install --cask ollama-app
 open -a Ollama
-ollama pull qwen2.5-coder:3b
+ollama pull qwen3:8b
 ```
 
 On macOS, use `brew install --cask ollama-app`. The `brew install ollama` formula can install without the required `llama-server` runtime binary.
+
+By default the app reads `OLLAMA_MODEL=qwen3:8b` from
+[graphql_assistant/core/config.py](/Users/thanhnguyen/Documents/graphql-assistant/graphql_assistant/core/config.py).
+Override it with an environment variable when you want a different local
+model:
+
+```bash
+OLLAMA_MODEL=your-model-tag .venv/bin/python -m graphql_assistant.cli "Generate a sample query" country
+```
 
 ## CLI
 

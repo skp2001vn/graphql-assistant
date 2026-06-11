@@ -1,1 +1,1 @@
-"""GraphQL Assistant sample application package."""
+"""GraphQL Assistant application package."""

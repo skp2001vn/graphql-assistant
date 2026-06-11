@@ -11,9 +11,10 @@ def build_llm_client(settings: AppSettings, namespace_prefix: str = "") -> LLMCl
     """Build the configured LLM provider client for assistant tools and agents.
 
     `LLM_PROVIDER` chooses the concrete adapter, currently `ollama` or
-    `openai`. When inference caching is enabled, the provider is wrapped in
-    `CachedLLMClient` with a namespace that includes model settings and an
-    optional workflow prefix, such as `troubleshooting`.
+    `openai`. The default provider is local Ollama, which defaults to
+    `OLLAMA_MODEL=qwen3:8b`. When inference caching is enabled, the provider is
+    wrapped in `CachedLLMClient` with a namespace that includes model settings
+    and an optional workflow prefix, such as `troubleshooting`.
     """
     provider = settings.llm_provider.lower()
     if provider == "ollama":

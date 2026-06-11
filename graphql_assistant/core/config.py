@@ -16,7 +16,11 @@ def _read_bool_env(name: str, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class AppSettings:
-    """Environment-backed settings for RAG, inference, caches, and guardrails."""
+    """Environment-backed settings for RAG, inference, caches, and guardrails.
+
+    Local inference defaults to Ollama with `OLLAMA_MODEL=qwen3:8b` unless the
+    environment overrides it.
+    """
 
     schema_file: Path = field(
         default_factory=lambda: Path(os.getenv("GRAPHQL_SCHEMA_FILE", "resources/schema.graphql"))
@@ -28,9 +32,8 @@ class AppSettings:
     )
     schema_context_top_k: int = field(default_factory=lambda: int(os.getenv("SCHEMA_CONTEXT_TOP_K", "5")))
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "ollama"))
-    #llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "openai"))
     ollama_url: str = field(default_factory=lambda: os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate"))
-    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b"))
+    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:8b"))
     ollama_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300")))
     ollama_num_predict: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_PREDICT", "600")))
     ollama_num_ctx: int | None = field(
@@ -44,7 +47,7 @@ class AppSettings:
     ollama_think: bool = field(default_factory=lambda: _read_bool_env("OLLAMA_THINK"))
     openai_api_key: str | None = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     openai_url: str = field(default_factory=lambda: os.getenv("OPENAI_URL", "https://api.openai.com/v1/responses"))
-    openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5.4-mini"))
+    openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5.4"))
     openai_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
     openai_max_output_tokens: int = field(default_factory=lambda: int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "600")))
     inference_cache_enabled: bool = field(default_factory=lambda: _read_bool_env("INFERENCE_CACHE_ENABLED", True))

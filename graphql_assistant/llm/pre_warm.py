@@ -10,8 +10,10 @@ class LLMPreWarmer:
     """Coordinates model pre-warm for configured LLM provider clients.
 
     Model pre-warm is an inference optimization for local providers such as
-    Ollama. It belongs in the LLM layer so assistant tools and agents can share the
-    same warm-once behavior without owning provider-specific checks.
+    Ollama. In the default configuration this means warming the configured
+    `qwen3:8b` model once at startup. It belongs in the LLM layer so assistant
+    tools and agents can share the same warm-once behavior without owning
+    provider-specific checks.
     """
 
     def __init__(self, settings: AppSettings, llm_client: LLMClient) -> None:

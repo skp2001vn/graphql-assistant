@@ -4,14 +4,18 @@ from graphql_assistant.core.config import AppSettings, get_settings
 
 
 class OllamaClient:
-    """Small HTTP client for local Ollama inference."""
+    """Small HTTP client for local Ollama inference.
+
+    The default local model comes from application settings and currently
+    resolves to `qwen3:8b` unless `OLLAMA_MODEL` is overridden.
+    """
 
     def __init__(self, settings: AppSettings | None = None) -> None:
         """Create an Ollama client from application settings."""
         self.settings = settings or get_settings()
 
     def pre_warm(self, prompt: str) -> None:
-        """Pre-load the local Ollama model before custom inference."""
+        """Pre-load the configured local Ollama model before custom inference."""
         self.generate(prompt)
 
     def generate(self, prompt: str) -> str:

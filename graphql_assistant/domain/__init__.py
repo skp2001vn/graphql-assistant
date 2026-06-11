@@ -1,4 +1,4 @@
-"""Domain models shared across GraphQL Assistant examples."""
+"""Domain models shared across GraphQL Assistant workflows."""
 
 from graphql_assistant.domain.models import GeneratedGraphQLSample, SchemaChunk, TroubleshootingResult
 
