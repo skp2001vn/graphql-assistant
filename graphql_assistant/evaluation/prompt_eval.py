@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from typing import Iterable, Protocol
+from typing import Iterable, Literal, Protocol
 
+from graphql_assistant.agents import AgentPlanningError, GraphQLAssistantAgent, GraphQLAssistantGoal
 from graphql_assistant.agents.tools import (
     SampleTool,
     TroubleshootingTool,
@@ -11,6 +12,28 @@ from graphql_assistant.agents.tools import (
     validate_variable_usage,
 )
 from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
+
+
+AssistantEvalIntent = Literal["generate_sample", "troubleshoot", "unsupported"]
+
+
+@dataclass(frozen=True)
+class AssistantPromptEvalCase:
+    """End-to-end evaluation case for the assistant API contract.
+
+    The app is now centered on the `/assistant` surface, so prompt eval should
+    primarily measure what that surface does: interpret a natural-language
+    goal, route to the right workflow, and return a valid generation or repair
+    result. These cases intentionally sit one layer above the individual tools.
+    """
+
+    name: str
+    goal: str
+    root_field: str
+    expected_intent: AssistantEvalIntent
+    expected_text: tuple[str, ...] = ()
+    graphql_call: str | None = None
+    expected_error_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -65,6 +88,13 @@ class TroubleshootingRunner(Protocol):
         """Troubleshoot a GraphQL operation."""
 
 
+class AssistantRunner(Protocol):
+    """Protocol for the public assistant entrypoint used by evals."""
+
+    def run(self, goal: GraphQLAssistantGoal) -> object:
+        """Run a single assistant request."""
+
+
 DEFAULT_SAMPLE_CASES = (
     SamplePromptEvalCase(
         name="sample country by code",
@@ -93,6 +123,93 @@ query CountryQuery($code: ID!) {
         expected_suggestion_text=("country(code:", "code", "name"),
     ),
 )
+
+DEFAULT_ASSISTANT_CASES = (
+    AssistantPromptEvalCase(
+        name="assistant sample country by code",
+        goal="Generate a sample query",
+        root_field="country",
+        expected_intent="generate_sample",
+        expected_text=("country(code:", "code", "name"),
+    ),
+    AssistantPromptEvalCase(
+        name="assistant sample countries list",
+        goal="Generate a sample query",
+        root_field="countries",
+        expected_intent="generate_sample",
+        expected_text=("countries", "code", "name"),
+    ),
+    AssistantPromptEvalCase(
+        name="assistant fixes selected field typo",
+        goal="Troubleshoot this GraphQL operation",
+        root_field="country",
+        graphql_call="""
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code1
+    name
+  }
+}
+""",
+        expected_intent="troubleshoot",
+        expected_text=("country(code:", "code", "name"),
+    ),
+    AssistantPromptEvalCase(
+        name="assistant rejects unsupported goal",
+        goal="sdfdsfdf",
+        root_field="country",
+        graphql_call="query CountryQuery($code: ID!) { country(code: $code) { code name } }",
+        expected_intent="unsupported",
+        expected_error_text="Assistant goal must ask to generate a sample GraphQL operation or troubleshoot a GraphQL operation.",
+    ),
+)
+
+
+def run_assistant_prompt_eval_cases(
+    assistant: AssistantRunner,
+    schema_file: object,
+    cases: Iterable[AssistantPromptEvalCase] = DEFAULT_ASSISTANT_CASES,
+) -> list[PromptEvalResult]:
+    """Run end-to-end prompt eval cases through the assistant workflow.
+
+    This is the most relevant eval for the current architecture because it
+    covers both the Agno-backed intent planner and the selected downstream
+    tool. The scoring remains intentionally simple:
+
+    - verify the assistant chooses the expected workflow,
+    - score the returned generation or troubleshooting result with existing
+      GraphQL guardrails,
+    - and verify unsupported goals are rejected explicitly.
+    """
+    results = []
+
+    for case in cases:
+        request = GraphQLAssistantGoal(
+            goal=case.goal,
+            root_field=case.root_field,
+            graphql_call=case.graphql_call,
+        )
+        try:
+            result = assistant.run(request)
+            checks = list(_score_assistant_intent(case, getattr(result, "intent", "")))
+            checks.extend(_score_assistant_output(case, getattr(result, "output", None), schema_file))
+            results.append(PromptEvalResult("assistant", case.name, _all_checks_passed(tuple(checks)), tuple(checks)))
+        except AgentPlanningError as exc:
+            if case.expected_intent == "unsupported":
+                checks = (
+                    _format_check(
+                        "assistant rejects unsupported goal",
+                        case.expected_error_text in str(exc) if case.expected_error_text else True,
+                        None if not case.expected_error_text or case.expected_error_text in str(exc) else [str(exc)],
+                    ),
+                )
+                results.append(PromptEvalResult("assistant", case.name, _all_checks_passed(checks), checks))
+            else:
+                results.append(PromptEvalResult("assistant", case.name, False, (), str(exc)))
+        except Exception as exc:
+            results.append(PromptEvalResult("assistant", case.name, False, (), str(exc)))
+
+    return results
 
 
 def run_sample_prompt_eval_cases(
@@ -164,28 +281,26 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run prompt evaluation cases against the configured LLM provider."""
+    """Run prompt evaluation cases against the public assistant workflow."""
     args = parse_args()
     sample_tool = SampleTool(rebuild_index=args.rebuild)
     sample_tool.llm_pre_warmer.pre_warm()
-    results: list[PromptEvalResult] = []
-
-    if args.workflow in {"all", "sample"}:
-        results.extend(run_sample_prompt_eval_cases(sample_tool))
-
-    if args.workflow in {"all", "troubleshoot"}:
-        troubleshooting_tool = TroubleshootingTool(
-            settings=sample_tool.settings,
-            llm_client=sample_tool.llm_client,
-            llm_pre_warmer=sample_tool.llm_pre_warmer,
-            schema_context_provider=sample_tool.schema_context_provider,
-        )
-        results.extend(
-            run_troubleshooting_prompt_eval_cases(
-                troubleshooting_tool,
-                sample_tool.settings.schema_file,
-            )
-        )
+    troubleshooting_tool = TroubleshootingTool(
+        settings=sample_tool.settings,
+        llm_client=sample_tool.llm_client,
+        llm_pre_warmer=sample_tool.llm_pre_warmer,
+        schema_context_provider=sample_tool.schema_context_provider,
+    )
+    assistant = GraphQLAssistantAgent(
+        llm_client=sample_tool.llm_client,
+        sample_tool=sample_tool,
+        troubleshooting_tool=troubleshooting_tool,
+    )
+    results = run_assistant_prompt_eval_cases(
+        assistant,
+        sample_tool.settings.schema_file,
+        _assistant_cases_for_workflow(args.workflow),
+    )
 
     _print_results(results)
     if any(not result.passed for result in results):
@@ -236,6 +351,68 @@ def _score_troubleshooting(
         )
 
     return tuple(checks)
+
+
+def _assistant_cases_for_workflow(workflow: str) -> tuple[AssistantPromptEvalCase, ...]:
+    if workflow == "sample":
+        return tuple(case for case in DEFAULT_ASSISTANT_CASES if case.expected_intent == "generate_sample")
+    if workflow == "troubleshoot":
+        return tuple(case for case in DEFAULT_ASSISTANT_CASES if case.expected_intent == "troubleshoot")
+
+    return DEFAULT_ASSISTANT_CASES
+
+
+def _score_assistant_intent(case: AssistantPromptEvalCase, actual_intent: str) -> tuple[str, ...]:
+    return (
+        _format_check(
+            f"assistant selects `{case.expected_intent}` intent",
+            actual_intent == case.expected_intent,
+            [f"actual intent was `{actual_intent}`"] if actual_intent != case.expected_intent else None,
+        ),
+    )
+
+
+def _score_assistant_output(
+    case: AssistantPromptEvalCase,
+    output: GeneratedGraphQLSample | TroubleshootingResult | None,
+    schema_file: object,
+) -> tuple[str, ...]:
+    if case.expected_intent == "generate_sample":
+        if not isinstance(output, GeneratedGraphQLSample):
+            return (
+                _format_check(
+                    "assistant returns a sample result",
+                    False,
+                    [f"actual output type was `{type(output).__name__}`"],
+                ),
+            )
+
+        sample_case = SamplePromptEvalCase(
+            name=case.name,
+            root_field=case.root_field,
+            expected_text=case.expected_text,
+        )
+        return _score_sample(sample_case, output, schema_file)
+
+    if case.expected_intent == "troubleshoot":
+        if not isinstance(output, TroubleshootingResult):
+            return (
+                _format_check(
+                    "assistant returns a troubleshooting result",
+                    False,
+                    [f"actual output type was `{type(output).__name__}`"],
+                ),
+            )
+
+        troubleshooting_case = TroubleshootingPromptEvalCase(
+            name=case.name,
+            root_field=case.root_field,
+            graphql_call=case.graphql_call or "",
+            expected_suggestion_text=case.expected_text,
+        )
+        return _score_troubleshooting(troubleshooting_case, output, schema_file)
+
+    return (_format_check("assistant should reject unsupported goal", False),)
 
 
 def _format_check(name: str, passed: bool, details: list[str] | None = None) -> str:

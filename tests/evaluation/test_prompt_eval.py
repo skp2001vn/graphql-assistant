@@ -7,11 +7,14 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from graphql_assistant.agents import AgentPlanningError, GraphQLAssistantGoal, GraphQLAssistantResult
 from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
 from graphql_assistant.evaluation import prompt_eval
 from graphql_assistant.evaluation.prompt_eval import (
+    AssistantPromptEvalCase,
     SamplePromptEvalCase,
     TroubleshootingPromptEvalCase,
+    run_assistant_prompt_eval_cases,
     run_sample_prompt_eval_cases,
     run_troubleshooting_prompt_eval_cases,
 )
@@ -51,6 +54,19 @@ class FakeTroubleshootingTool:
         return self.result
 
 
+class FakeAssistant:
+    def __init__(self, response: GraphQLAssistantResult | Exception) -> None:
+        self.response = response
+        self.goals: list[GraphQLAssistantGoal] = []
+
+    def run(self, goal: GraphQLAssistantGoal) -> GraphQLAssistantResult:
+        self.goals.append(goal)
+        if isinstance(self.response, Exception):
+            raise self.response
+
+        return self.response
+
+
 class FakeLLMPreWarmer:
     def __init__(self) -> None:
         self.pre_warm_called = False
@@ -69,6 +85,11 @@ class FakeMainSampleTool:
 
 
 class FakeMainTroubleshootingTool:
+    def __init__(self, **_: object) -> None:
+        pass
+
+
+class FakeMainAssistant:
     def __init__(self, **_: object) -> None:
         pass
 
@@ -156,18 +177,69 @@ query CountryQuery($code: ID!) {
         self.assertEqual([("country", cases[0].graphql_call)], tool.calls)
         self.assertIn("PASS suggestion validates against schema", results[0].checks)
 
+    def test_assistant_eval_passes_sample_request(self) -> None:
+        sample = GeneratedGraphQLSample(
+            operation="""
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+""",
+            variables={"code": "US"},
+            raw_response="raw",
+        )
+        case = AssistantPromptEvalCase(
+            name="assistant sample",
+            goal="Generate a sample query",
+            root_field="country",
+            expected_intent="generate_sample",
+            expected_text=("country(code:", "code", "name"),
+        )
+        assistant = FakeAssistant(
+            GraphQLAssistantResult(
+                intent="generate_sample",
+                goal=GraphQLAssistantGoal(goal=case.goal, root_field=case.root_field),
+                output=sample,
+                raw_plan_response='{"intent":"generate_sample"}',
+            )
+        )
+
+        results = run_assistant_prompt_eval_cases(assistant, self.schema_file, [case])
+
+        self.assertTrue(results[0].passed)
+        self.assertEqual([GraphQLAssistantGoal(goal=case.goal, root_field=case.root_field, graphql_call=None)], assistant.goals)
+        self.assertIn("PASS assistant selects `generate_sample` intent", results[0].checks)
+
+    def test_assistant_eval_passes_unsupported_goal(self) -> None:
+        case = AssistantPromptEvalCase(
+            name="unsupported",
+            goal="sdfdsfdf",
+            root_field="country",
+            expected_intent="unsupported",
+            expected_error_text="Assistant goal must ask to generate a sample GraphQL operation or troubleshoot a GraphQL operation.",
+        )
+        assistant = FakeAssistant(AgentPlanningError(case.expected_error_text))
+
+        results = run_assistant_prompt_eval_cases(assistant, self.schema_file, [case])
+
+        self.assertTrue(results[0].passed)
+        self.assertIn("PASS assistant rejects unsupported goal", results[0].checks)
+
     def test_main_prints_summary(self) -> None:
         output = io.StringIO()
-        result = prompt_eval.PromptEvalResult("sample", "case", True, ("PASS check",))
+        result = prompt_eval.PromptEvalResult("assistant", "case", True, ("PASS check",))
 
         with patch("sys.argv", ["prompt-eval", "--workflow", "sample"]):
             with patch("graphql_assistant.evaluation.prompt_eval.SampleTool", FakeMainSampleTool):
                 with patch("graphql_assistant.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
-                    with patch("graphql_assistant.evaluation.prompt_eval.run_sample_prompt_eval_cases", return_value=[result]):
-                        with redirect_stdout(output):
-                            prompt_eval.main()
+                    with patch("graphql_assistant.evaluation.prompt_eval.GraphQLAssistantAgent", FakeMainAssistant):
+                        with patch("graphql_assistant.evaluation.prompt_eval.run_assistant_prompt_eval_cases", return_value=[result]):
+                            with redirect_stdout(output):
+                                prompt_eval.main()
 
-        self.assertIn("[PASS] sample: case", output.getvalue())
+        self.assertIn("[PASS] assistant: case", output.getvalue())
         self.assertIn("Summary: 1/1 passed", output.getvalue())
 
 
