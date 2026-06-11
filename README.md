@@ -48,7 +48,7 @@ On macOS, use `brew install --cask ollama-app`. The `brew install ollama` formul
 
 ```bash
 source .venv/bin/activate
-.venv/bin/python -m graphql_ai.cli country
+.venv/bin/python -m graphql_ai.cli "Generate a sample query" country
 ```
 
 The first run builds the local Chroma index. Later runs reuse it automatically. If you edit `resources/schema.graphql`, the app detects the schema change and rebuilds the index.
@@ -56,13 +56,20 @@ The first run builds the local Chroma index. Later runs reuse it automatically. 
 To force a rebuild:
 
 ```bash
-.venv/bin/python -m graphql_ai.cli --rebuild country
+.venv/bin/python -m graphql_ai.cli --rebuild "Generate a sample query" country
 ```
 
 To use OpenAI instead of Ollama:
 
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.2 .venv/bin/python -m graphql_ai.cli country
+LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.2 .venv/bin/python -m graphql_ai.cli "Generate a sample query" country
+```
+
+To troubleshoot from the CLI:
+
+```bash
+.venv/bin/python -m graphql_ai.cli "Troubleshoot this operation" country \
+  --graphql-call 'query CountryQuery { country { code1 } }'
 ```
 
 ## API

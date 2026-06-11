@@ -2,17 +2,33 @@ from __future__ import annotations
 
 import argparse
 
-from graphql_ai.agents.tools import SampleQueryTool
+from graphql_ai.agents import GraphQLAssistantAgent, GraphQLAssistantGoal
+from graphql_ai.agents.tools import SampleQueryTool, TroubleshootingTool
+from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_ai.core.config import get_settings
+from graphql_ai.llm.factory import build_llm_client
+from graphql_ai.llm.pre_warm import LLMPreWarmer
+from graphql_ai.rag.vector_store import SchemaVectorStore
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for sample-query generation."""
-    parser = argparse.ArgumentParser(description="Generate sample GraphQL calls with the AI pipeline.")
+    """Parse command-line arguments for the assistant CLI."""
+    parser = argparse.ArgumentParser(description="Run the GraphQL assistant from the command line.")
+    parser.add_argument(
+        "goal",
+        nargs="?",
+        default="Generate a sample query",
+        help="Natural-language assistant goal, for example: Generate a sample query.",
+    )
     parser.add_argument(
         "root_field",
         nargs="?",
         default="country",
-        help="GraphQL Query or Mutation field name to generate a sample call for.",
+        help="GraphQL Query or Mutation field name the assistant should focus on.",
+    )
+    parser.add_argument(
+        "--graphql-call",
+        help="GraphQL operation to troubleshoot when the goal is a troubleshooting request.",
     )
     parser.add_argument(
         "--rebuild",
@@ -23,14 +39,62 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the sample-query CLI."""
+    """Run the assistant CLI."""
     args = parse_args()
-    sample_query_tool = SampleQueryTool(rebuild_index=args.rebuild)
-    sample_query_tool.llm_pre_warmer.pre_warm()
-    sample = sample_query_tool.generate(args.root_field)
+    settings = get_settings()
+    schema_context_provider = SchemaVectorStore(settings=settings, rebuild=args.rebuild)
+    llm_client = build_llm_client(settings)
+    llm_pre_warmer = LLMPreWarmer(settings, llm_client)
+    llm_pre_warmer.pre_warm()
 
-    print("\nGenerated result:\n")
-    print(sample.raw_response)
+    sample_query_tool = SampleQueryTool(
+        settings=settings,
+        llm_client=llm_client,
+        llm_pre_warmer=llm_pre_warmer,
+        schema_context_provider=schema_context_provider,
+    )
+    troubleshooting_tool = TroubleshootingTool(
+        settings=settings,
+        llm_client=llm_client,
+        llm_pre_warmer=llm_pre_warmer,
+        schema_context_provider=schema_context_provider,
+    )
+    assistant = GraphQLAssistantAgent(
+        llm_client=llm_client,
+        sample_query_tool=sample_query_tool,
+        troubleshooting_tool=troubleshooting_tool,
+    )
+    result = assistant.run(
+        GraphQLAssistantGoal(
+            goal=args.goal,
+            root_field=args.root_field,
+            graphql_call=args.graphql_call,
+        )
+    )
+
+    print(f"\nAssistant intent: {result.intent}\n")
+    _print_output(result.output)
+
+
+def _print_output(output: GeneratedGraphQLSample | TroubleshootingResult) -> None:
+    if isinstance(output, GeneratedGraphQLSample):
+        print("Generated result:\n")
+        print(output.raw_response)
+        return
+
+    print("Troubleshooting result:\n")
+    print(f"Status: {output.status}")
+    if output.issues:
+        print("Issues:")
+        for issue in output.issues:
+            print(f"- {issue}")
+    if output.detail:
+        print("Detail:")
+        for line in output.detail:
+            print(f"- {line}")
+    if output.suggestion:
+        print("Suggestion:\n")
+        print(output.suggestion)
 
 
 if __name__ == "__main__":
