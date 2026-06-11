@@ -4,6 +4,7 @@ import re
 from threading import Lock
 from typing import Any
 
+from graphql_ai.agents.tools.sample_query_tool import InvalidRootFieldNameError, validate_root_field_request
 from graphql_ai.core.config import AppSettings, get_settings
 from graphql_ai.core.protocols import SchemaContextProvider
 from graphql_ai.domain import TroubleshootingResult
@@ -11,7 +12,6 @@ from graphql_ai.llm.base import LLMClient
 from graphql_ai.llm.factory import build_llm_client
 from graphql_ai.llm.pre_warm import LLMPreWarmer
 from graphql_ai.rag.vector_store import SchemaVectorStore
-from graphql_ai.services.sample_query_service import InvalidRootFieldNameError, validate_root_field_request
 
 
 TROUBLESHOOTING_SYSTEM_PROMPT = (
@@ -77,12 +77,7 @@ def validate_troubleshooting_input(root_field: str, graphql_call: str) -> tuple[
 
 
 class GraphQLValidator:
-    """Validator that captures GraphQL syntax and schema issues.
-
-    The GraphQL schema is parsed once when the tool is created because the
-    local SDL file changes rarely and validation may run multiple times per
-    troubleshooting request.
-    """
+    """Validator that captures GraphQL syntax and schema issues."""
 
     def __init__(self, schema_file: Any) -> None:
         """Create a validator with a cached parsed schema."""
@@ -90,13 +85,7 @@ class GraphQLValidator:
         self.schema = self._build_schema()
 
     def validate(self, graphql_call: str) -> list[str]:
-        """Return GraphQL syntax and schema issues for a submitted operation.
-
-        This deterministic validator runs before any model inference. Syntax errors
-        come from GraphQL parsing, while schema errors come from validating the
-        parsed document against the local SDL. Each issue keeps line and column
-        details so the model can explain the correction in user-friendly terms.
-        """
+        """Return GraphQL syntax and schema issues for a submitted operation."""
         try:
             from graphql import parse, validate
         except ImportError as exc:
@@ -127,13 +116,7 @@ class SchemaContextRetriever:
         self._cache: dict[str, str] = {}
 
     def retrieve(self, root_field: str) -> str:
-        """Retrieve RAG schema context for the root field being troubleshot.
-
-        The troubleshooting prompt does not receive the whole schema. Instead,
-        this retriever asks the configured schema-context provider for chunks related
-        to the requested Query or Mutation field and caches that context for the
-        lifetime of this instance.
-        """
+        """Retrieve RAG schema context for the root field being troubleshot."""
         if root_field not in self._cache:
             self._cache[root_field] = self.schema_context_provider.retrieve_schema_context(
                 f"Troubleshoot GraphQL Query or Mutation root field {root_field}"
@@ -142,13 +125,8 @@ class SchemaContextRetriever:
         return self._cache[root_field]
 
 
-class TroubleshootingService:
-    """Business service that troubleshoots user-provided GraphQL operations.
-
-    This service coordinates deterministic input guardrails, GraphQL
-    validation, RAG schema retrieval, prompt construction, inference, and
-    suggested-operation guardrails for the troubleshooting use case.
-    """
+class TroubleshootingTool:
+    """Assistant tool that troubleshoots user-provided GraphQL operations."""
 
     def __init__(
         self,
@@ -158,7 +136,7 @@ class TroubleshootingService:
         schema_context_provider: SchemaContextProvider | None = None,
         allow_downloads: bool = False,
     ) -> None:
-        """Create a troubleshooting service with injectable dependencies."""
+        """Create a troubleshooting tool with injectable infrastructure dependencies."""
         self.settings = settings or get_settings()
         self.llm_client = llm_client or self._build_default_llm_client()
         self.llm_pre_warmer = llm_pre_warmer or LLMPreWarmer(self.settings, self.llm_client)
@@ -171,24 +149,7 @@ class TroubleshootingService:
         self._inference_lock = Lock()
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
-        """Troubleshoot a user-submitted GraphQL operation.
-
-        This is the main workflow behind the troubleshoot service:
-
-        1. Validate and normalize the root-field path value and request body.
-        2. Run GraphQL validation before calling the model.
-        3. Return immediately when the submitted operation is already valid.
-        4. Retrieve focused schema context for the requested root field.
-        5. Build a prompt from validation issues, schema context, and the
-           submitted operation.
-        6. Pre-warm configured LLM resources and ask for detail text and a candidate fix.
-        7. Clean the model detail so API users see explanation, not raw errors.
-        8. Validate the suggested operation before returning it.
-
-        Deterministic validation output stays authoritative. The model can explain and
-        propose a correction, but GraphQL-core validation decides whether the
-        original call is invalid and whether the suggestion is safe to return.
-        """
+        """Troubleshoot a user-submitted GraphQL operation."""
         normalized_root_field, normalized_graphql_call = validate_troubleshooting_input(root_field, graphql_call)
         validation_issues = self.validator.validate(normalized_graphql_call)
         if not validation_issues:
@@ -256,13 +217,7 @@ class TroubleshootingService:
 
 
 def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:
-    """Parse inference into detail text and a suggested operation.
-
-    The troubleshooting prompt asks for labeled `DETAIL` and `SUGGESTION` code
-    blocks. This parser prefers those labels, but also supports simple fenced
-    block fallback so the educational app remains tolerant of imperfect local
-    model formatting.
-    """
+    """Parse inference into detail text and a suggested operation."""
     labeled_detail = _extract_labeled_code_block(raw_response, "DETAIL")
     labeled_suggestion = _extract_labeled_code_block(raw_response, "SUGGESTION")
     if labeled_detail is not None or labeled_suggestion is not None:
@@ -289,11 +244,7 @@ def _extract_labeled_code_block(raw_response: str, label: str) -> str | None:
 
 
 def normalize_detail(raw_detail: str) -> list[str]:
-    """Normalize model detail output into readable response lines.
-
-    The API returns `detail` as a list of short lines. This helper removes empty
-    lines and surrounding whitespace while preserving the model's wording.
-    """
+    """Normalize model detail output into readable response lines."""
     detail = raw_detail.strip()
     if not detail:
         return []
@@ -302,12 +253,7 @@ def normalize_detail(raw_detail: str) -> list[str]:
 
 
 def clean_model_detail(detail: list[str], issues: list[str]) -> list[str]:
-    """Keep only explanation lines for the response detail field.
-
-    GraphQL-core issues are already returned in the `issues` field. This helper
-    removes model lines that simply repeat those validator messages so users see
-    a concise explanation of the correction instead of duplicate raw errors.
-    """
+    """Keep only explanation lines for the response detail field."""
     normalized_issues = [_normalize_issue_line(issue) for issue in issues]
     cleaned_detail = []
 

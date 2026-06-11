@@ -18,7 +18,7 @@ class OllamaClient:
         """Generate text with runtime options tuned for local inference.
 
         The application passes a single prompt string because prompt
-        construction already happened in the service or agent layer. This
+        construction already happened in the assistant tool or agent layer. This
         adapter only owns Ollama-specific HTTP details.
 
         `keep_alive` keeps the model loaded between requests, `num_predict`

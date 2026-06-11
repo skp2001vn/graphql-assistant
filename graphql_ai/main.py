@@ -4,44 +4,43 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from graphql_ai.agents import GraphQLAIAgent
+from graphql_ai.agents import GraphQLAssistantAgent
+from graphql_ai.agents.tools import SampleQueryTool, TroubleshootingTool
 from graphql_ai.api.routes import router
 from graphql_ai.core.config import get_settings
 from graphql_ai.core.responses import PrettyJSONResponse
 from graphql_ai.llm.factory import build_llm_client
 from graphql_ai.llm.pre_warm import LLMPreWarmer
 from graphql_ai.rag.vector_store import SchemaVectorStore
-from graphql_ai.services.sample_query_service import SampleQueryService
-from graphql_ai.services.troubleshooting_service import TroubleshootingService
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize services and optionally pre-warm local Ollama inference."""
+    """Initialize assistant tools and optionally pre-warm local Ollama inference."""
     settings = get_settings()
     schema_context_provider = SchemaVectorStore(settings=settings)
     llm_client = build_llm_client(settings)
     llm_pre_warmer = LLMPreWarmer(settings, llm_client)
     llm_pre_warmer.pre_warm()
 
-    sample_service = SampleQueryService(
+    sample_query_tool = SampleQueryTool(
         settings=settings,
         llm_client=llm_client,
         llm_pre_warmer=llm_pre_warmer,
         schema_context_provider=schema_context_provider,
     )
-    troubleshooting_service = TroubleshootingService(
+    troubleshooting_tool = TroubleshootingTool(
         settings=settings,
         llm_client=llm_client,
         llm_pre_warmer=llm_pre_warmer,
         schema_context_provider=schema_context_provider,
     )
-    graphql_ai_agent = GraphQLAIAgent(
+    graphql_assistant_agent = GraphQLAssistantAgent(
         llm_client=llm_client,
-        sample_query_tool=sample_service,
-        troubleshooting_tool=troubleshooting_service,
+        sample_query_tool=sample_query_tool,
+        troubleshooting_tool=troubleshooting_tool,
     )
-    app.state.graphql_ai_agent = graphql_ai_agent
+    app.state.graphql_assistant_agent = graphql_assistant_agent
     yield
 
 

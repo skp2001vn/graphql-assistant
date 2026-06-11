@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from graphql_ai.services.sample_query_service import SampleQueryService
+from graphql_ai.agents.tools import SampleQueryTool
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,9 +25,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Run the sample-query CLI."""
     args = parse_args()
-    sample_service = SampleQueryService(rebuild_index=args.rebuild)
-    sample_service.llm_pre_warmer.pre_warm()
-    sample = sample_service.generate(args.root_field)
+    sample_query_tool = SampleQueryTool(rebuild_index=args.rebuild)
+    sample_query_tool.llm_pre_warmer.pre_warm()
+    sample = sample_query_tool.generate(args.root_field)
 
     print("\nGenerated result:\n")
     print(sample.raw_response)

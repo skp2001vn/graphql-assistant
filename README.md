@@ -6,7 +6,7 @@ A small example project for generating GraphQL operations and troubleshooting Gr
 - Troubleshooting uses a tool-using agent.
 - Supports Ollama and OpenAI.
 
-The application generates and validates GraphQL operations from schema files located in the resources/ folder (typically *.graphql files).
+The application generates and validates GraphQL operations from schema files located in the `resources/` folder (typically `*.graphql` files).
 
 ## Overview
 
@@ -21,7 +21,8 @@ Key concepts:
 - Embeddings and vector search
 - LLM inference (Ollama or OpenAI)
 - Output validation (guardrails)
-- Tool-using agents
+- Agno-backed assistant planning
+- Assistant tools
 - GraphQL schema-driven generation and validation
 
 ## Setup
@@ -73,53 +74,56 @@ source .venv/bin/activate
 uvicorn graphql_ai.main:app --host 0.0.0.0 --port 8080
 ```
 
-Call the sample-query endpoint:
+Ask the assistant to generate a sample operation:
 
 ```bash
-curl http://localhost:8080/sample/country
+curl -X POST http://localhost:8080/assistant \
+  -H "Content-Type: application/json" \
+  --data '{
+    "goal": "Generate a sample query",
+    "root_field": "country"
+  }'
 ```
 
 The response is JSON:
 
 ```json
 {
+  "type": "sample",
   "operation": ["..."],
   "variables": {
     "code": "US"
-  }
+  },
+  "root_field": null,
+  "status": null,
+  "issues": null,
+  "detail": null,
+  "suggestion": null
 }
 ```
 
 `root_field` is the GraphQL Query or Mutation field to generate, such as `country` or `countries`.
 
-Call the troubleshooting endpoint with a plain-text GraphQL operation:
+Ask the assistant to troubleshoot a GraphQL operation:
 
 ```bash
-curl -X POST http://localhost:8080/troubleshoot/country \
-  -H "Content-Type: text/plain" \
-  --data 'query CountyQuery($code: ID!) {
-  country(code: $code) {
-    code1
-    name
-  }
-}'
-```
-
-Postman's **Body > GraphQL** mode sends JSON with a `query` field. The endpoint accepts that shape too:
-
-```json
-{
-  "query": "query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code1\n    name\n  }\n}",
-  "variables": {
-    "code": "US"
-  }
-}
+curl -X POST http://localhost:8080/assistant \
+  -H "Content-Type: application/json" \
+  --data '{
+    "goal": "Troubleshoot this GraphQL operation",
+    "root_field": "country",
+    "graphql_call": "query CountryQuery($code: ID!) { country(code: $code) { code1 name } }"
+  }'
 ```
 
 The response is JSON:
 
 ```json
 {
+  "type": "troubleshooting",
+  "operation": null,
+  "variables": null,
+  "root_field": "country",
   "status": "invalid",
   "issues": ["..."],
   "detail": ["..."],
@@ -131,6 +135,10 @@ When the submitted GraphQL operation is valid, troubleshooting returns empty iss
 
 ```json
 {
+  "type": "troubleshooting",
+  "operation": null,
+  "variables": null,
+  "root_field": "country",
   "status": "valid",
   "issues": [],
   "detail": [],
@@ -161,20 +169,19 @@ The tests use fake LLM and schema-context providers, so they do not require Chro
 
 ```text
 graphql_ai/
-  agents/    troubleshooting workflow
+  agents/    assistant planner and tools
   api/       FastAPI routes and schemas
   core/      shared settings and interfaces
   domain/    domain models
   llm/       LLM providers
   rag/       schema retrieval
-  services/  business workflows
 tests/
 ```
 
 Design principles:
 
 - Routes stay thin.
-- Services contain business logic.
-- Agents contain agent workflows.
+- The assistant agent owns workflow selection.
+- Assistant tools contain GraphQL workflow logic.
 - RAG concerns stay in `rag/`.
 - LLM access stays in `llm/`.

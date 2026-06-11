@@ -7,12 +7,12 @@ This project generates and troubleshoots GraphQL operations from schema files.
 ```text
 graphql_ai/
   agents/
+    tools/
   api/
   core/
   domain/
   llm/
   rag/
-  services/
 tests/
 ```
 
@@ -25,8 +25,8 @@ tests/
 ## Layering Rules
 
 - Routes stay thin.
-- Services own business logic.
 - Agents belong in `graphql_ai/agents`.
+- Assistant tools own GraphQL assistant workflows.
 - RAG belongs in `graphql_ai/rag`.
 - Prefer interfaces when multiple implementations are expected.
 - Do not create packages for future features.
@@ -34,7 +34,7 @@ tests/
 ## Naming
 
 - Use clear module names.
-- Use `Service`, `Client`, and `Provider` suffixes consistently.
+- Use `Agent`, `Tool`, `Client`, and `Provider` suffixes consistently.
 - Keep API schemas in `api/schemas.py`.
 - Keep domain models in `domain/models.py`.
 
@@ -68,7 +68,11 @@ Smoke test API changes when relevant:
 
 ```bash
 uvicorn graphql_ai.main:app --host 127.0.0.1 --port 8082
-curl http://127.0.0.1:8082/sample/country
-curl -X POST http://127.0.0.1:8082/troubleshoot/country
+curl -X POST http://127.0.0.1:8082/assistant \
+  -H "Content-Type: application/json" \
+  --data '{"goal": "Generate a sample query", "root_field": "country"}'
+curl -X POST http://127.0.0.1:8082/assistant \
+  -H "Content-Type: application/json" \
+  --data '{"goal": "Troubleshoot this GraphQL operation", "root_field": "country", "graphql_call": "query CountryQuery { country { code1 } }"}'
 ```
 ```

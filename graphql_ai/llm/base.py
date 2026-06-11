@@ -4,7 +4,7 @@ from typing import Protocol
 
 
 class LLMClient(Protocol):
-    """Protocol for text-generation clients used by application services."""
+    """Protocol for text-generation clients used by assistant tools and agents."""
 
     def generate(self, prompt: str) -> str:
         """Generate text from a prompt."""

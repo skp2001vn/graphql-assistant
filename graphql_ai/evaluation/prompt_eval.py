@@ -4,13 +4,13 @@ import argparse
 from dataclasses import dataclass
 from typing import Iterable, Protocol
 
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
-from graphql_ai.services.sample_query_service import (
-    SampleQueryService,
+from graphql_ai.agents.tools import (
+    SampleQueryTool,
+    TroubleshootingTool,
     validate_operation_against_schema,
     validate_variable_usage,
 )
-from graphql_ai.services.troubleshooting_service import TroubleshootingService
+from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
 
 
 @dataclass(frozen=True)
@@ -49,8 +49,8 @@ class SettingsWithSchemaFile(Protocol):
     schema_file: object
 
 
-class SampleGenerationService(Protocol):
-    """Protocol for services that generate sample GraphQL operations for evals."""
+class SampleGenerationTool(Protocol):
+    """Protocol for tools that generate sample GraphQL operations for evals."""
 
     settings: SettingsWithSchemaFile
 
@@ -59,7 +59,7 @@ class SampleGenerationService(Protocol):
 
 
 class TroubleshootingRunner(Protocol):
-    """Protocol for services that troubleshoot GraphQL operations for evals."""
+    """Protocol for tools that troubleshoot GraphQL operations for evals."""
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
         """Troubleshoot a GraphQL operation."""
@@ -96,7 +96,7 @@ query CountryQuery($code: ID!) {
 
 
 def run_sample_prompt_eval_cases(
-    service: SampleGenerationService,
+    tool: SampleGenerationTool,
     cases: Iterable[SamplePromptEvalCase] = DEFAULT_SAMPLE_CASES,
 ) -> list[PromptEvalResult]:
     """Run sample-generation prompt evaluation cases.
@@ -108,11 +108,11 @@ def run_sample_prompt_eval_cases(
     eval framework.
     """
     results = []
-    schema_file = service.settings.schema_file
+    schema_file = tool.settings.schema_file
 
     for case in cases:
         try:
-            sample = service.generate(case.root_field)
+            sample = tool.generate(case.root_field)
             checks = _score_sample(case, sample, schema_file)
             results.append(PromptEvalResult("sample", case.name, _all_checks_passed(checks), checks))
         except Exception as exc:
@@ -122,14 +122,14 @@ def run_sample_prompt_eval_cases(
 
 
 def run_troubleshooting_prompt_eval_cases(
-    service: TroubleshootingRunner,
+    tool: TroubleshootingRunner,
     schema_file: object,
     cases: Iterable[TroubleshootingPromptEvalCase] = DEFAULT_TROUBLESHOOTING_CASES,
 ) -> list[PromptEvalResult]:
     """Run troubleshooting prompt evaluation cases.
 
     Each case submits an intentionally invalid GraphQL operation to the
-    troubleshooting service, then checks that the service reports issues, produces
+    troubleshooting tool, then checks that the tool reports issues, produces
     user-facing detail text, returns a suggestion, and that the suggestion
     validates against the schema.
     """
@@ -137,7 +137,7 @@ def run_troubleshooting_prompt_eval_cases(
 
     for case in cases:
         try:
-            result = service.troubleshoot(case.root_field, case.graphql_call)
+            result = tool.troubleshoot(case.root_field, case.graphql_call)
             checks = _score_troubleshooting(case, result, schema_file)
             results.append(PromptEvalResult("troubleshoot", case.name, _all_checks_passed(checks), checks))
         except Exception as exc:
@@ -166,24 +166,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Run prompt evaluation cases against the configured LLM provider."""
     args = parse_args()
-    sample_service = SampleQueryService(rebuild_index=args.rebuild)
-    sample_service.llm_pre_warmer.pre_warm()
+    sample_query_tool = SampleQueryTool(rebuild_index=args.rebuild)
+    sample_query_tool.llm_pre_warmer.pre_warm()
     results: list[PromptEvalResult] = []
 
     if args.workflow in {"all", "sample"}:
-        results.extend(run_sample_prompt_eval_cases(sample_service))
+        results.extend(run_sample_prompt_eval_cases(sample_query_tool))
 
     if args.workflow in {"all", "troubleshoot"}:
-        troubleshooting_service = TroubleshootingService(
-            settings=sample_service.settings,
-            llm_client=sample_service.llm_client,
-            llm_pre_warmer=sample_service.llm_pre_warmer,
-            schema_context_provider=sample_service.schema_context_provider,
+        troubleshooting_tool = TroubleshootingTool(
+            settings=sample_query_tool.settings,
+            llm_client=sample_query_tool.llm_client,
+            llm_pre_warmer=sample_query_tool.llm_pre_warmer,
+            schema_context_provider=sample_query_tool.schema_context_provider,
         )
         results.extend(
             run_troubleshooting_prompt_eval_cases(
-                troubleshooting_service,
-                sample_service.settings.schema_file,
+                troubleshooting_tool,
+                sample_query_tool.settings.schema_file,
             )
         )
 

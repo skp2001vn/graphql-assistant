@@ -35,7 +35,7 @@ def read_schema_file(schema_file: Path) -> tuple[str, str]:
 def load_schema_chunks(schema_file: Path) -> list[SchemaChunk]:
     """Load a GraphQL schema file and split it into retrieval chunks.
 
-    Services do not work directly with the full SDL. The RAG layer turns the
+    Assistant tools do not work directly with the full SDL. The RAG layer turns the
     schema into smaller chunks that can be embedded, stored in Chroma, and
     retrieved later based on the user's requested root field.
     """

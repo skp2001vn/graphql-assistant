@@ -10,7 +10,7 @@ class LLMPreWarmer:
     """Coordinates model pre-warm for configured LLM provider clients.
 
     Model pre-warm is an inference optimization for local providers such as
-    Ollama. It belongs in the LLM layer so services and agents can share the
+    Ollama. It belongs in the LLM layer so assistant tools and agents can share the
     same warm-once behavior without owning provider-specific checks.
     """
 

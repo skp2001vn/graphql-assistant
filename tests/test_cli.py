@@ -17,7 +17,7 @@ class FakeLLMPreWarmer:
         self.pre_warm_called = True
 
 
-class FakeSampleService:
+class FakeSampleQueryTool:
     def __init__(self, rebuild_index: bool = False) -> None:
         self.rebuild_index = rebuild_index
         self.llm_pre_warmer = FakeLLMPreWarmer()
@@ -42,7 +42,7 @@ class CliTest(unittest.TestCase):
         output = io.StringIO()
 
         with patch("sys.argv", ["graphql-ai", "--rebuild", "countries"]):
-            with patch("graphql_ai.cli.SampleQueryService", FakeSampleService):
+            with patch("graphql_ai.cli.SampleQueryTool", FakeSampleQueryTool):
                 with redirect_stdout(output):
                     cli.main()
 

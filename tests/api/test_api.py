@@ -6,7 +6,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from graphql_ai.agents import AgentPlanningError, GraphQLAIGoal, GraphQLAIResult
+from graphql_ai.agents import AgentPlanningError, GraphQLAssistantGoal, GraphQLAssistantResult
 from graphql_ai.api.routes import router
 from graphql_ai.core.responses import PrettyJSONResponse
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
@@ -23,7 +23,7 @@ class FakeLLMPreWarmer:
         self.pre_warm_called = True
 
 
-class FakeSampleService:
+class FakeSampleQueryTool:
     def __init__(self) -> None:
         self.pre_warm_called = False
 
@@ -31,17 +31,17 @@ class FakeSampleService:
         self.pre_warm_called = True
 
 
-class FakeTroubleshootingService:
+class FakeTroubleshootingTool:
     pass
 
 
-class FakeGraphQLAIAgent:
+class FakeGraphQLAssistantAgent:
     def __init__(self, error: Exception | None = None, output: object | None = None) -> None:
         self.error = error
         self.output = output
-        self.goals: list[GraphQLAIGoal] = []
+        self.goals: list[GraphQLAssistantGoal] = []
 
-    def run(self, goal: GraphQLAIGoal) -> GraphQLAIResult:
+    def run(self, goal: GraphQLAssistantGoal) -> GraphQLAssistantResult:
         self.goals.append(goal)
         if self.error is not None:
             raise self.error
@@ -52,27 +52,26 @@ class FakeGraphQLAIAgent:
             raw_response="raw",
         )
         intent = "troubleshoot" if isinstance(output, TroubleshootingResult) else "generate_sample"
-        return GraphQLAIResult(
+        return GraphQLAssistantResult(
             intent=intent,
             goal=goal,
             plan=(),
             tool_calls=(),
-            observations=(),
             output=output,
             raw_plan_response="{}",
         )
 
 
-def build_test_client(graphql_ai_agent: FakeGraphQLAIAgent) -> TestClient:
+def build_test_client(graphql_assistant_agent: FakeGraphQLAssistantAgent) -> TestClient:
     app = FastAPI(default_response_class=PrettyJSONResponse)
     app.include_router(router)
-    app.state.graphql_ai_agent = graphql_ai_agent
+    app.state.graphql_assistant_agent = graphql_assistant_agent
     return TestClient(app)
 
 
 class ApiTest(unittest.TestCase):
     def test_health_endpoint_returns_status(self) -> None:
-        client = build_test_client(FakeGraphQLAIAgent())
+        client = build_test_client(FakeGraphQLAssistantAgent())
 
         response = client.get("/health")
 
@@ -80,7 +79,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual({"status": "ok"}, response.json())
 
     def test_assistant_returns_sample_result(self) -> None:
-        agent = FakeGraphQLAIAgent()
+        agent = FakeGraphQLAssistantAgent()
         client = build_test_client(agent)
 
         response = client.post(
@@ -111,7 +110,7 @@ class ApiTest(unittest.TestCase):
             },
             response.json(),
         )
-        self.assertEqual([GraphQLAIGoal(goal="Generate a sample query", root_field="country")], agent.goals)
+        self.assertEqual([GraphQLAssistantGoal(goal="Generate a sample query", root_field="country")], agent.goals)
 
     def test_assistant_returns_troubleshooting_result(self) -> None:
         graphql_call = "query CountryQuery($code: ID!) { county(code: $code) { code } }"
@@ -123,7 +122,7 @@ class ApiTest(unittest.TestCase):
             suggestion="query CountryQuery($code: ID!) {\n  country(code: $code) {\n    code\n  }\n}",
             raw_response="raw",
         )
-        agent = FakeGraphQLAIAgent(output=troubleshooting_result)
+        agent = FakeGraphQLAssistantAgent(output=troubleshooting_result)
         client = build_test_client(agent)
 
         response = client.post(
@@ -156,13 +155,19 @@ class ApiTest(unittest.TestCase):
             response.json(),
         )
         self.assertEqual(
-            [GraphQLAIGoal(goal="Something is wrong with this query", root_field="country", graphql_call=graphql_call)],
+            [
+                GraphQLAssistantGoal(
+                    goal="Something is wrong with this query",
+                    root_field="country",
+                    graphql_call=graphql_call,
+                )
+            ],
             agent.goals,
         )
 
     def test_assistant_returns_400_for_agent_planning_error(self) -> None:
         client = build_test_client(
-            FakeGraphQLAIAgent(
+            FakeGraphQLAssistantAgent(
                 error=AgentPlanningError(
                     "Troubleshooting requires `graphql_call`. Include the GraphQL operation in the request body."
                 )
@@ -189,7 +194,7 @@ class ApiTest(unittest.TestCase):
         )
 
     def test_sample_and_troubleshoot_routes_are_removed(self) -> None:
-        client = build_test_client(FakeGraphQLAIAgent())
+        client = build_test_client(FakeGraphQLAssistantAgent())
 
         sample_response = client.get("/sample/country")
         troubleshoot_response = client.post("/troubleshoot/country", content="query CountryQuery { country { code } }")
@@ -197,9 +202,9 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(404, sample_response.status_code)
         self.assertEqual(404, troubleshoot_response.status_code)
 
-    def test_create_app_lifespan_constructs_services_and_assistant_agent(self) -> None:
-        sample_service = FakeSampleService()
-        troubleshooting_service = FakeTroubleshootingService()
+    def test_create_app_lifespan_constructs_tools_and_assistant_agent(self) -> None:
+        sample_query_tool = FakeSampleQueryTool()
+        troubleshooting_tool = FakeTroubleshootingTool()
         settings = object()
         schema_context_provider = object()
         llm_client = object()
@@ -210,12 +215,12 @@ class ApiTest(unittest.TestCase):
             patch("graphql_ai.main.SchemaVectorStore", return_value=schema_context_provider) as vector_store_class,
             patch("graphql_ai.main.build_llm_client", return_value=llm_client) as llm_factory,
             patch("graphql_ai.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
-            patch("graphql_ai.main.SampleQueryService", return_value=sample_service) as sample_service_class,
+            patch("graphql_ai.main.SampleQueryTool", return_value=sample_query_tool) as sample_tool_class,
             patch(
-                "graphql_ai.main.TroubleshootingService",
-                return_value=troubleshooting_service,
-            ) as troubleshooting_service_class,
-            patch("graphql_ai.main.GraphQLAIAgent") as agent_class,
+                "graphql_ai.main.TroubleshootingTool",
+                return_value=troubleshooting_tool,
+            ) as troubleshooting_tool_class,
+            patch("graphql_ai.main.GraphQLAssistantAgent") as agent_class,
         ):
             app = create_app()
             with TestClient(app) as client:
@@ -226,13 +231,13 @@ class ApiTest(unittest.TestCase):
         llm_factory.assert_called_once_with(settings)
         pre_warmer_class.assert_called_once_with(settings, llm_client)
         self.assertTrue(pre_warmer.pre_warm_called)
-        sample_service_class.assert_called_once_with(
+        sample_tool_class.assert_called_once_with(
             settings=settings,
             llm_client=llm_client,
             llm_pre_warmer=pre_warmer,
             schema_context_provider=schema_context_provider,
         )
-        troubleshooting_service_class.assert_called_once_with(
+        troubleshooting_tool_class.assert_called_once_with(
             settings=settings,
             llm_client=llm_client,
             llm_pre_warmer=pre_warmer,
@@ -240,10 +245,10 @@ class ApiTest(unittest.TestCase):
         )
         agent_class.assert_called_once_with(
             llm_client=llm_client,
-            sample_query_tool=sample_service,
-            troubleshooting_tool=troubleshooting_service,
+            sample_query_tool=sample_query_tool,
+            troubleshooting_tool=troubleshooting_tool,
         )
-        self.assertFalse(sample_service.pre_warm_called)
+        self.assertFalse(sample_query_tool.pre_warm_called)
 
 
 if __name__ == "__main__":

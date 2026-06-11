@@ -1,5 +1,15 @@
-"""Agent workflows for GraphQL AI use cases."""
+"""Agent workflows for GraphQL assistant use cases."""
 
-from graphql_ai.agents.application_agent import AgentPlanningError, GraphQLAIAgent, GraphQLAIGoal, GraphQLAIResult
+from graphql_ai.agents.assistant_agent import (
+    AgentPlanningError,
+    GraphQLAssistantAgent,
+    GraphQLAssistantGoal,
+    GraphQLAssistantResult,
+)
 
-__all__ = ["AgentPlanningError", "GraphQLAIAgent", "GraphQLAIGoal", "GraphQLAIResult"]
+__all__ = [
+    "AgentPlanningError",
+    "GraphQLAssistantAgent",
+    "GraphQLAssistantGoal",
+    "GraphQLAssistantResult",
+]

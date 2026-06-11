@@ -53,7 +53,7 @@ class SchemaVectorStore:
     def retrieve_schema_context(self, retrieval_request: str) -> str:
         """Retrieve prompt-ready schema context for a root-field request.
 
-        This is the retrieval step services use before prompt construction. The
+        This is the retrieval step assistant tools use before prompt construction. The
         method embeds the request, asks Chroma for the top-k closest schema
         chunks, and formats those chunks as text for the LLM prompt. When
         schema-context caching is enabled, the final formatted context is cached

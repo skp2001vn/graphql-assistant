@@ -8,7 +8,7 @@ from graphql_ai.llm.openai_client import OpenAIClient
 
 
 def build_llm_client(settings: AppSettings, namespace_prefix: str = "") -> LLMClient:
-    """Build the configured LLM provider client for services and agents.
+    """Build the configured LLM provider client for assistant tools and agents.
 
     `LLM_PROVIDER` chooses the concrete adapter, currently `ollama` or
     `openai`. When inference caching is enabled, the provider is wrapped in

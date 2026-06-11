@@ -16,7 +16,7 @@ class OpenAIClient:
         """Generate text with OpenAI using the configured Responses API model.
 
         The application passes a single prompt string because prompt
-        construction already happened in the service or agent layer. This
+        construction already happened in the assistant tool or agent layer. This
         adapter only owns provider-specific HTTP details: API key validation,
         request payload shape, timeout, error translation, and output-text
         extraction.

@@ -47,31 +47,12 @@ class InvalidRootFieldNameError(ValueError):
     """Raised when an API root field is not a valid GraphQL field name."""
 
 
-class SampleQueryService:
-    """Business service for generating sample GraphQL queries.
+class SampleQueryTool:
+    """Assistant tool for generating sample GraphQL operations.
 
-    This service coordinates the application workflow for the sample-query use case:
-    it receives a root field name from the API, converts it into a short
-    retrieval request, runs RAG retrieval through the configured schema-context
-    provider, builds a prompt from retrieved context, sends that prompt through
-    the configured LLM client for inference, and parses the model output into a
-    GraphQL operation plus variables. In this application, the API `root_field`
-    value is the schema Query or Mutation field name the user wants to generate,
-    such as `country`.
-
-    The current default schema-context provider is RAG-backed: `SchemaVectorStore`
-    chunks the local GraphQL SDL, creates embeddings, stores them in a Chroma
-    vector store, and retrieves relevant schema context for each request. The
-    service depends on the `SchemaContextProvider` protocol, so that RAG can
-    later be replaced or composed with other approaches such as agent workflows,
-    planning, model routing, prompt evaluation, or inference optimization without
-    changing the API layer.
-
-    This service applies input and output guardrails. Input validation rejects
-    malformed root-field names before RAG retrieval or inference. Output
-    validation parses and validates generated operations against the local SDL
-    before the API returns them, which prevents invented fields or malformed
-    operations from silently reaching callers.
+    This tool coordinates the sample-generation workflow: input validation,
+    focused schema retrieval, prompt construction, inference, response parsing,
+    and GraphQL output guardrails.
     """
 
     def __init__(
@@ -83,7 +64,7 @@ class SampleQueryService:
         rebuild_index: bool = False,
         allow_downloads: bool = False,
     ) -> None:
-        """Create a sample-query service with injectable LLM and schema context dependencies."""
+        """Create a sample-query tool with injectable infrastructure dependencies."""
         self.settings = settings or get_settings()
         self.schema_context_provider = schema_context_provider or SchemaVectorStore(
             settings=self.settings,
@@ -95,19 +76,7 @@ class SampleQueryService:
         self._generation_lock = Lock()
 
     def generate(self, root_field: str) -> GeneratedGraphQLSample:
-        """Generate a sample GraphQL operation and variables for an API root field.
-
-        In this app, `root_field` means the schema Query or Mutation field name
-        requested by the API, for example `country`. It is converted into a
-        short retrieval request, then the full application flow runs: RAG
-        retrieval, prompt construction, inference, parsing, and guardrail
-        validation. The input guardrail confirms the root field is a valid
-        GraphQL field name before any retrieval or inference work starts. The
-        prompt is compressed by default: retrieved schema chunks are compacted
-        and the instruction template is intentionally short to reduce local
-        model input tokens. After generation, GraphQL-core validation rejects
-        operations that do not match the current schema.
-        """
+        """Generate a sample GraphQL operation and variables for an API root field."""
         normalized_root_field = validate_root_field_request(root_field)
 
         operation_name = f"{_pascal_case(normalized_root_field)}Query"
@@ -136,15 +105,6 @@ class SampleQueryService:
 
         return sample
 
-    def pre_warm(self) -> None:
-        """Pre-load configured LLM resources before custom inference.
-
-        Model pre-warm is coordinated by the common LLM layer. For the default
-        Ollama provider, this sends a tiny prompt to load the local model before
-        the first custom generation.
-        """
-        self.llm_pre_warmer.pre_warm()
-
     def _build_prompt(
         self,
         schema_context: str,
@@ -165,14 +125,7 @@ class SampleQueryService:
 
 
 def parse_generated_sample(raw_response: str) -> GeneratedGraphQLSample:
-    """Parse model output into a GraphQL operation and Variables JSON.
-
-    The sample-generation prompt asks the model for two fenced code blocks:
-    the operation first, then variables JSON. This parser keeps the workflow
-    forgiving for educational use: if the variables block is missing, it infers
-    simple sample values from GraphQL variable definitions; if JSON parsing
-    fails, the raw variables text is preserved instead of silently discarded.
-    """
+    """Parse model output into a GraphQL operation and Variables JSON."""
     code_blocks = re.findall(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", raw_response, flags=re.DOTALL)
     operation = code_blocks[0].strip() if code_blocks else raw_response.strip()
     variables: dict[str, Any] = {}
@@ -228,13 +181,7 @@ def _sample_value_for_graphql_type(variable_name: str, type_ref: str) -> Any:
 
 
 def validate_operation_against_schema(operation: str, schema_file: Any) -> list[str]:
-    """Validate generated operations with GraphQL-core as an output guardrail.
-
-    This guardrail uses the standard GraphQL parser and validator instead of
-    custom string checks. It catches malformed GraphQL, invented fields, missing
-    required arguments, invalid scalar selections, and variable type mismatches
-    before a generated sample is returned.
-    """
+    """Validate generated operations with GraphQL-core as an output guardrail."""
     try:
         from graphql import build_schema, parse, validate
     except ImportError as exc:
@@ -250,12 +197,7 @@ def validate_operation_against_schema(operation: str, schema_file: Any) -> list[
 
 
 def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[str]:
-    """Validate that returned Variables JSON entries are used by the operation.
-
-    This small guardrail catches a common model-output drift: the operation
-    changes but the Variables JSON still includes old variable names. Private
-    parser fallback keys such as `_raw` are ignored.
-    """
+    """Validate that returned Variables JSON entries are used by the operation."""
     errors: list[str] = []
     for variable_name in variables:
         if variable_name.startswith("_"):
@@ -267,12 +209,7 @@ def validate_variable_usage(operation: str, variables: dict[str, Any]) -> list[s
 
 
 def validate_root_field_request(root_field: str) -> str:
-    """Validate an API root-field request before RAG retrieval and inference.
-
-    This input guardrail accepts only GraphQL field-name syntax. Rejecting
-    malformed requests here avoids unnecessary embedding retrieval, prompt
-    construction, and LLM provider inference.
-    """
+    """Validate an API root-field request before RAG retrieval and inference."""
     normalized_root_field = root_field.strip()
     if not normalized_root_field:
         raise InvalidRootFieldNameError("Root field must not be empty.")

@@ -2,22 +2,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from graphql_ai.agents import AgentPlanningError, GraphQLAIAgent, GraphQLAIGoal
+from graphql_ai.agents import AgentPlanningError, GraphQLAssistantAgent, GraphQLAssistantGoal
+from graphql_ai.agents.tools import InvalidRootFieldNameError
 from graphql_ai.api.schemas import (
     AssistantRequest,
     AssistantResultResponse,
     HealthResponse,
 )
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
-from graphql_ai.services.sample_query_service import InvalidRootFieldNameError
 
 
 router = APIRouter()
 
 
-def get_graphql_ai_agent(request: Request) -> GraphQLAIAgent:
+def get_graphql_assistant_agent(request: Request) -> GraphQLAssistantAgent:
     """Return the application-scoped GraphQL AI assistant agent."""
-    return request.app.state.graphql_ai_agent
+    return request.app.state.graphql_assistant_agent
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -31,13 +31,13 @@ def run_assistant(request: Request, assistant_request: AssistantRequest) -> Assi
     """Run the natural-language GraphQL AI assistant.
 
     The request provides a natural-language goal and a required GraphQL root
-    field. The assistant uses an LLM planner to choose a service tool, validates
+    field. The assistant uses an LLM planner to choose an assistant tool, validates
     the plan, executes the tool, and returns the final domain result.
     """
     try:
-        agent = get_graphql_ai_agent(request)
+        agent = get_graphql_assistant_agent(request)
         agent_result = agent.run(
-            GraphQLAIGoal(
+            GraphQLAssistantGoal(
                 goal=assistant_request.goal,
                 root_field=assistant_request.root_field,
                 graphql_call=assistant_request.graphql_call,

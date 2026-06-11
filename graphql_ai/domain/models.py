@@ -35,7 +35,7 @@ class GeneratedGraphQLSample:
 
 @dataclass(frozen=True)
 class TroubleshootingResult:
-    """Result returned by the troubleshooting service workflow.
+    """Result returned by the troubleshooting tool workflow.
 
     The result keeps deterministic GraphQL validation issues separate from
     model-generated detail text and the validated suggested operation.

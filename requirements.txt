@@ -1,3 +1,4 @@
+agno
 chromadb
 fastapi
 graphql-core

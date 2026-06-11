@@ -30,7 +30,7 @@ type Country {
 """
 
 
-class FakeSampleService:
+class FakeSampleQueryTool:
     def __init__(self, sample: GeneratedGraphQLSample, schema_file: Path | None = None) -> None:
         self.sample = sample
         self.settings = type("Settings", (), {"schema_file": schema_file})()
@@ -41,7 +41,7 @@ class FakeSampleService:
         return self.sample
 
 
-class FakeTroubleshootingService:
+class FakeTroubleshootingTool:
     def __init__(self, result: TroubleshootingResult) -> None:
         self.result = result
         self.calls: list[tuple[str, str]] = []
@@ -59,7 +59,7 @@ class FakeLLMPreWarmer:
         self.pre_warm_called = True
 
 
-class FakeMainSampleService:
+class FakeMainSampleQueryTool:
     def __init__(self, rebuild_index: bool = False) -> None:
         self.settings = type("Settings", (), {"schema_file": Path("schema.graphql")})()
         self.llm_client = object()
@@ -68,7 +68,7 @@ class FakeMainSampleService:
         self.rebuild_index = rebuild_index
 
 
-class FakeMainTroubleshootingService:
+class FakeMainTroubleshootingTool:
     def __init__(self, **_: object) -> None:
         pass
 
@@ -95,7 +95,7 @@ query CountryQuery($code: ID!) {
             variables={"code": "US"},
             raw_response="raw",
         )
-        service = FakeSampleService(sample, self.schema_file)
+        tool = FakeSampleQueryTool(sample, self.schema_file)
         cases = [
             SamplePromptEvalCase(
                 name="country",
@@ -104,10 +104,10 @@ query CountryQuery($code: ID!) {
             )
         ]
 
-        results = run_sample_prompt_eval_cases(service, cases)
+        results = run_sample_prompt_eval_cases(tool, cases)
 
         self.assertTrue(results[0].passed)
-        self.assertEqual(["country"], service.root_fields)
+        self.assertEqual(["country"], tool.root_fields)
         self.assertIn("PASS operation validates against schema", results[0].checks)
 
     def test_sample_eval_fails_invalid_generation(self) -> None:
@@ -116,10 +116,10 @@ query CountryQuery($code: ID!) {
             variables={"code": "US"},
             raw_response="raw",
         )
-        service = FakeSampleService(sample, self.schema_file)
+        tool = FakeSampleQueryTool(sample, self.schema_file)
         cases = [SamplePromptEvalCase(name="country", root_field="country", expected_text=("code",))]
 
-        results = run_sample_prompt_eval_cases(service, cases)
+        results = run_sample_prompt_eval_cases(tool, cases)
 
         self.assertFalse(results[0].passed)
         self.assertIn("FAIL operation validates against schema", results[0].checks[0])
@@ -140,7 +140,7 @@ query CountryQuery($code: ID!) {
 """,
             raw_response="raw",
         )
-        service = FakeTroubleshootingService(result)
+        tool = FakeTroubleshootingTool(result)
         cases = [
             TroubleshootingPromptEvalCase(
                 name="field typo",
@@ -150,10 +150,10 @@ query CountryQuery($code: ID!) {
             )
         ]
 
-        results = run_troubleshooting_prompt_eval_cases(service, self.schema_file, cases)
+        results = run_troubleshooting_prompt_eval_cases(tool, self.schema_file, cases)
 
         self.assertTrue(results[0].passed)
-        self.assertEqual([("country", cases[0].graphql_call)], service.calls)
+        self.assertEqual([("country", cases[0].graphql_call)], tool.calls)
         self.assertIn("PASS suggestion validates against schema", results[0].checks)
 
     def test_main_prints_summary(self) -> None:
@@ -161,8 +161,8 @@ query CountryQuery($code: ID!) {
         result = prompt_eval.PromptEvalResult("sample", "case", True, ("PASS check",))
 
         with patch("sys.argv", ["prompt-eval", "--workflow", "sample"]):
-            with patch("graphql_ai.evaluation.prompt_eval.SampleQueryService", FakeMainSampleService):
-                with patch("graphql_ai.evaluation.prompt_eval.TroubleshootingService", FakeMainTroubleshootingService):
+            with patch("graphql_ai.evaluation.prompt_eval.SampleQueryTool", FakeMainSampleQueryTool):
+                with patch("graphql_ai.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
                     with patch("graphql_ai.evaluation.prompt_eval.run_sample_prompt_eval_cases", return_value=[result]):
                         with redirect_stdout(output):
                             prompt_eval.main()
