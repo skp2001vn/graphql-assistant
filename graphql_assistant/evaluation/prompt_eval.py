@@ -332,6 +332,7 @@ def _score_sample(case: SamplePromptEvalCase, sample: GeneratedGraphQLSample, sc
     variable_errors = validate_variable_usage(sample.operation, sample.variables)
     checks.append(_format_check("operation validates against schema", not validation_errors, validation_errors))
     checks.append(_format_check("variables match operation", not variable_errors, variable_errors))
+    checks.append(_check_requested_root_field(sample.operation, case.root_field))
 
     for expected_text in case.expected_text:
         checks.append(
@@ -349,17 +350,32 @@ def _score_troubleshooting(
     result: TroubleshootingResult,
     schema_file: object,
 ) -> tuple[str, ...]:
+    original_validation_errors = validate_operation_against_schema(case.graphql_call, schema_file)
     checks = [
+        _format_check(
+            "submitted operation is invalid before troubleshooting",
+            bool(original_validation_errors),
+            original_validation_errors or ["submitted operation unexpectedly validated"],
+        ),
         _format_check("original call reports validation issues", bool(result.issues)),
         _format_check("detail explains the correction", bool(result.detail)),
         _format_check("suggestion is returned", bool(result.suggestion.strip())),
+        _format_check(
+            "result status matches troubleshooting outcome",
+            result.status == ("invalid" if result.issues else "valid"),
+            [f"status was `{result.status}` for issues={bool(result.issues)}"]
+            if result.status != ("invalid" if result.issues else "valid")
+            else None,
+        ),
     ]
 
     if result.suggestion:
         validation_errors = validate_operation_against_schema(result.suggestion, schema_file)
         checks.append(_format_check("suggestion validates against schema", not validation_errors, validation_errors))
+        checks.append(_check_requested_root_field(result.suggestion, case.root_field))
     else:
         checks.append(_format_check("suggestion validates against schema", False, ["missing suggestion"]))
+        checks.append(_format_check(f"suggestion targets requested root field `{case.root_field}`", False, ["missing suggestion"]))
 
     for expected_text in case.expected_suggestion_text:
         checks.append(
@@ -460,6 +476,47 @@ def _print_results(results: list[PromptEvalResult]) -> None:
 
     passed_count = sum(1 for result in results if result.passed)
     print(f"\nSummary: {passed_count}/{len(results)} passed")
+
+
+def _check_requested_root_field(operation: str, root_field: str) -> str:
+    operation_root_fields, parse_errors = _extract_root_fields(operation)
+    if parse_errors:
+        return _format_check(
+            f"operation targets requested root field `{root_field}`",
+            False,
+            parse_errors,
+        )
+
+    return _format_check(
+        f"operation targets requested root field `{root_field}`",
+        root_field in operation_root_fields,
+        [f"top-level root fields were: {', '.join(operation_root_fields) or '<none>'}"]
+        if root_field not in operation_root_fields
+        else None,
+    )
+
+
+def _extract_root_fields(operation: str) -> tuple[tuple[str, ...], list[str] | None]:
+    try:
+        from graphql import OperationDefinitionNode, parse
+    except ImportError as exc:
+        raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
+
+    try:
+        document = parse(operation)
+    except Exception as exc:
+        return (), [str(exc).split("\n\n", maxsplit=1)[0]]
+
+    root_fields: list[str] = []
+    for definition in document.definitions:
+        if not isinstance(definition, OperationDefinitionNode):
+            continue
+        for selection in definition.selection_set.selections:
+            field_name = getattr(getattr(selection, "name", None), "value", None)
+            if field_name:
+                root_fields.append(field_name)
+
+    return tuple(root_fields), None
 
 
 if __name__ == "__main__":

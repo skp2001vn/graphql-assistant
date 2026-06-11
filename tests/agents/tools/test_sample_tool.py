@@ -121,6 +121,46 @@ query CountryQuery($code: ID!, $active: Boolean, $limit: Int) {
 
         self.assertEqual({"code": "US", "active": True, "limit": 1}, sample.variables)
 
+    def test_parse_generated_sample_discards_variables_not_declared_by_operation(self) -> None:
+        raw_response = """
+```graphql
+query CountriesQuery {
+  countries {
+    code
+    name
+  }
+}
+```
+
+```json
+{"countries": ["US", "CA"]}
+```
+"""
+
+        sample = parse_generated_sample(raw_response)
+
+        self.assertEqual({}, sample.variables)
+
+    def test_parse_generated_sample_backfills_missing_declared_variables(self) -> None:
+        raw_response = """
+```graphql
+query CountryQuery($code: ID!, $active: Boolean) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+```
+
+```json
+{"code": "CA"}
+```
+"""
+
+        sample = parse_generated_sample(raw_response)
+
+        self.assertEqual({"code": "CA", "active": True}, sample.variables)
+
     def test_validate_operation_rejects_field_missing_from_response_type(self) -> None:
         operation = """
 query ContinentQuery($code: ID!) {
@@ -316,6 +356,32 @@ query CountriesQuery {
         self.assertIn("Response type:\nCountry", llm_client.prompts[0])
         self.assertIn("Operation name:\nCountriesQuery", llm_client.prompts[0])
         self.assertEqual("GraphQL Query or Mutation root field countries", schema_context_provider.requests[0])
+
+    def test_generate_discards_extraneous_variables_for_root_field_without_arguments(self) -> None:
+        llm_response = """
+```graphql
+query CountriesQuery {
+  countries {
+    code
+    name
+  }
+}
+```
+
+```json
+{"countries": ["US", "CA"]}
+```
+"""
+        llm_client = FakeLLMClient(llm_response)
+        tool = SampleTool(
+            settings=self.settings,
+            llm_client=llm_client,
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        sample = tool.generate("countries")
+
+        self.assertEqual({}, sample.variables)
 
     def test_generate_can_generate_argument_fields(self) -> None:
         llm_response = """

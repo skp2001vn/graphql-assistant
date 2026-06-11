@@ -145,6 +145,35 @@ query CountryQuery($code: ID!) {
         self.assertFalse(results[0].passed)
         self.assertIn("FAIL operation validates against schema", results[0].checks[0])
 
+    def test_sample_eval_fails_when_generation_targets_wrong_root_field(self) -> None:
+        sample = GeneratedGraphQLSample(
+            operation="""
+query CountriesQuery {
+  countries {
+    code
+    name
+  }
+}
+""",
+            variables={},
+            raw_response="raw",
+        )
+        tool = FakeSampleTool(sample, self.schema_file)
+        cases = [
+            SamplePromptEvalCase(
+                name="country",
+                root_field="country",
+                expected_text=("code", "name"),
+            )
+        ]
+
+        results = run_sample_prompt_eval_cases(tool, cases)
+
+        self.assertFalse(results[0].passed)
+        self.assertTrue(
+            any(check.startswith("FAIL operation targets requested root field `country`") for check in results[0].checks)
+        )
+
     def test_troubleshooting_eval_passes_fixed_suggestion(self) -> None:
         result = TroubleshootingResult(
             root_field="country",
@@ -176,6 +205,39 @@ query CountryQuery($code: ID!) {
         self.assertTrue(results[0].passed)
         self.assertEqual([("country", cases[0].graphql_call)], tool.calls)
         self.assertIn("PASS suggestion validates against schema", results[0].checks)
+
+    def test_troubleshooting_eval_fails_when_status_conflicts_with_issues(self) -> None:
+        result = TroubleshootingResult(
+            root_field="country",
+            status="valid",
+            issues=["Cannot query field 'code1' on type 'Country'."],
+            detail=["Use `code` instead of `code1`."],
+            suggestion="""
+query CountryQuery($code: ID!) {
+  country(code: $code) {
+    code
+    name
+  }
+}
+""",
+            raw_response="raw",
+        )
+        tool = FakeTroubleshootingTool(result)
+        cases = [
+            TroubleshootingPromptEvalCase(
+                name="field typo",
+                root_field="country",
+                graphql_call="query CountryQuery($code: ID!) { country(code: $code) { code1 } }",
+                expected_suggestion_text=("country(code:", "code", "name"),
+            )
+        ]
+
+        results = run_troubleshooting_prompt_eval_cases(tool, self.schema_file, cases)
+
+        self.assertFalse(results[0].passed)
+        self.assertTrue(
+            any(check.startswith("FAIL result status matches troubleshooting outcome") for check in results[0].checks)
+        )
 
     def test_assistant_eval_passes_sample_request(self) -> None:
         sample = GeneratedGraphQLSample(

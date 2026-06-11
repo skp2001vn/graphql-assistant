@@ -8,8 +8,7 @@ The application exposes one assistant surface, `/assistant`, and supports workfl
 - troubleshoot a submitted GraphQL query/mutation against the active schema
 - generate mock data and documentation: future extension.
 
-The application supports OpenAI API and local Ollama. The
-default local model is `qwen3:8b`.
+The application supports OpenAI API and local Ollama. By default, the model is local Ollama `qwen3:8b`.
 
 ## AI Concepts Covered 
 
