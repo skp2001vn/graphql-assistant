@@ -12,7 +12,11 @@ from graphql_ai.llm.base import LLMClient
 
 
 GraphQLAssistantIntent = Literal["generate_sample", "troubleshoot"]
+PlannerIntent = Literal["generate_sample", "troubleshoot", "unsupported"]
 GraphQLAssistantOutput = GeneratedGraphQLSample | TroubleshootingResult
+UNSUPPORTED_GOAL_MESSAGE = (
+    "Assistant goal must ask to generate a sample GraphQL operation or troubleshoot a GraphQL operation."
+)
 
 PLANNER_SYSTEM_PROMPT = """You are a GraphQL assistant workflow planner.
 Choose the correct workflow intent for a user's natural-language goal.
@@ -20,11 +24,13 @@ Choose the correct workflow intent for a user's natural-language goal.
 Available intents:
 - generate_sample: Generate a sample GraphQL operation for one Query or Mutation root field.
 - troubleshoot: Troubleshoot a submitted GraphQL operation.
+- unsupported: The user goal is unclear, gibberish, unrelated, or not one of the supported workflows.
 
 Rules:
 - Return only JSON. Do not wrap the JSON in markdown.
 - Use generate_sample when the user asks to generate, create, or show a sample GraphQL query or operation.
 - Use troubleshoot when the user asks to fix, debug, validate, troubleshoot, or explain what is wrong with a GraphQL operation.
+- Use unsupported when the goal is not clearly asking for sample generation or troubleshooting.
 - Do not return request inputs. The application owns tool inputs.
 
 Return a response matching the configured structured output schema.
@@ -67,14 +73,14 @@ class GraphQLAssistantResult:
 class IntentOutput(BaseModel):
     """Structured Agno output for assistant workflow selection."""
 
-    intent: GraphQLAssistantIntent
+    intent: PlannerIntent
     reason: str = Field(description="Short reason for selecting this intent.")
 
 
 class AssistantPlanner(Protocol):
     """Planner interface used by the assistant agent."""
 
-    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, str, str]:
+    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[PlannerIntent, str, str]:
         """Return the selected intent, reason, and raw planner response."""
 
 
@@ -97,7 +103,7 @@ class AgnoAssistantPlanner:
             telemetry=False,
         )
 
-    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, str, str]:
+    def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[PlannerIntent, str, str]:
         """Run the Agno planner and return the selected assistant intent."""
         response = self.agent.run(_build_planner_input(goal))
         content = response.content
@@ -145,9 +151,12 @@ class GraphQLAssistantAgent:
             raw_plan_response=raw_plan_response,
         )
 
-    def _run_tool(self, intent: GraphQLAssistantIntent, goal: GraphQLAssistantGoal) -> GraphQLAssistantOutput:
+    def _run_tool(self, intent: PlannerIntent, goal: GraphQLAssistantGoal) -> GraphQLAssistantOutput:
         if intent == "generate_sample":
             return self.sample_query_tool.generate(goal.root_field)
+
+        if intent == "unsupported":
+            raise AgentPlanningError(UNSUPPORTED_GOAL_MESSAGE)
 
         if goal.graphql_call is None:
             raise AgentPlanningError(
@@ -162,4 +171,3 @@ def _build_planner_input(goal: GraphQLAssistantGoal) -> str:
         root_field=goal.root_field,
         graphql_call=goal.graphql_call or "<not provided>",
     )
-

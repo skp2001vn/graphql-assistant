@@ -73,6 +73,21 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         self.assertEqual("The user asked for a sample query.", reason)
         self.assertIn("generate_sample", raw_response)
 
+    def test_agno_planner_can_return_unsupported_intent(self) -> None:
+        llm_client = FakeLLMClient('{"intent":"unsupported","reason":"The goal is unclear."}')
+
+        intent, reason, raw_response = AgnoAssistantPlanner(llm_client).choose_intent(
+            GraphQLAssistantGoal(
+                goal="sdfdsfdf",
+                root_field="country",
+                graphql_call="query CountryQuery { country { code } }",
+            )
+        )
+
+        self.assertEqual("unsupported", intent)
+        self.assertEqual("The goal is unclear.", reason)
+        self.assertIn("unsupported", raw_response)
+
     def test_sample_goal_uses_plan_and_calls_sample_tool(self) -> None:
         planner = FakePlanner("generate_sample", "The user asked for a sample query.")
         sample_tool = FakeSampleQueryTool()
@@ -137,6 +152,24 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
 
         with self.assertRaisesRegex(AgentPlanningError, "Troubleshooting requires `graphql_call`"):
             agent.run(GraphQLAssistantGoal(goal="Something is wrong with this query", root_field="country"))
+
+    def test_unsupported_goal_returns_planning_error(self) -> None:
+        planner = FakePlanner("unsupported", "The goal is unclear.")
+        sample_tool = FakeSampleQueryTool()
+        troubleshooting_tool = FakeTroubleshootingTool()
+        agent = GraphQLAssistantAgent(FakeLLMClient("unused"), sample_tool, troubleshooting_tool, planner=planner)
+
+        with self.assertRaisesRegex(AgentPlanningError, "Assistant goal must ask"):
+            agent.run(
+                GraphQLAssistantGoal(
+                    goal="sdfdsfdf",
+                    root_field="country",
+                    graphql_call="query CountryQuery { country { code } }",
+                )
+            )
+
+        self.assertEqual([], sample_tool.root_fields)
+        self.assertEqual([], troubleshooting_tool.requests)
 
 
 if __name__ == "__main__":
