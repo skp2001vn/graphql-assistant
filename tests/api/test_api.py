@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from graphql_assistant.agents import AgentPlanningError, GraphQLAssistantGoal, GraphQLAssistantResult
 from graphql_assistant.api.routes import router
+from graphql_assistant.agents.tools import RootFieldNotInSchemaError
 from graphql_assistant.core.responses import PrettyJSONResponse
 from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
 from graphql_assistant.main import create_app
@@ -186,6 +187,35 @@ class ApiTest(unittest.TestCase):
                 "detail": (
                     "Troubleshooting requires `graphql_call`. "
                     "Include the GraphQL operation in the request body."
+                )
+            },
+            response.json(),
+        )
+
+    def test_assistant_returns_400_for_root_field_missing_from_schema(self) -> None:
+        client = build_test_client(
+            FakeGraphQLAssistantAgent(
+                error=RootFieldNotInSchemaError(
+                    "No GraphQL Query or Mutation field named `city` exists in the current schema. "
+                    "Available root fields: countries, country."
+                )
+            )
+        )
+
+        response = client.post(
+            "/assistant",
+            json={
+                "goal": "Generate a sample query",
+                "root_field": "city",
+            },
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(
+            {
+                "detail": (
+                    "No GraphQL Query or Mutation field named `city` exists in the current schema. "
+                    "Available root fields: countries, country."
                 )
             },
             response.json(),

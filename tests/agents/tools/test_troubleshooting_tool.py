@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from graphql_assistant.core.config import AppSettings
+from graphql_assistant.agents.tools import RootFieldNotInSchemaError
 from graphql_assistant.agents.tools.troubleshooting_tool import TroubleshootingTool
 
 
@@ -91,14 +92,14 @@ query CountryQuery($code: ID!) {
         )
 
         result = tool.troubleshoot(
-            "county",
+            "country",
             'query CountyQuery($code: ID!) { county(code: $code) { code } }',
         )
 
         self.assertEqual(1, pre_warmer.calls)
         self.assertEqual(1, len(llm_client.prompts))
         self.assertIn("country", result.suggestion)
-        self.assertEqual(["Troubleshoot GraphQL Query or Mutation root field county"], schema_context_provider.requests)
+        self.assertEqual(["Troubleshoot GraphQL Query or Mutation root field country"], schema_context_provider.requests)
 
     def test_troubleshoot_skips_prewarm_when_call_is_already_valid(self) -> None:
         llm_client = FakeLLMClient("unused")
@@ -117,6 +118,27 @@ query CountryQuery($code: ID!) {
         )
 
         self.assertEqual("valid", result.status)
+        self.assertEqual(0, pre_warmer.calls)
+        self.assertEqual([], llm_client.prompts)
+        self.assertEqual([], schema_context_provider.requests)
+
+    def test_troubleshoot_rejects_root_field_missing_from_schema(self) -> None:
+        llm_client = FakeLLMClient("unused")
+        pre_warmer = FakeLLMPreWarmer()
+        schema_context_provider = FakeSchemaContextProvider()
+        tool = TroubleshootingTool(
+            settings=self.settings,
+            llm_client=llm_client,
+            llm_pre_warmer=pre_warmer,
+            schema_context_provider=schema_context_provider,
+        )
+
+        with self.assertRaisesRegex(RootFieldNotInSchemaError, "No GraphQL Query or Mutation field named `city`"):
+            tool.troubleshoot(
+                "city",
+                'query CountryQuery($code: ID!) { country(code: $code) { code name } }',
+            )
+
         self.assertEqual(0, pre_warmer.calls)
         self.assertEqual([], llm_client.prompts)
         self.assertEqual([], schema_context_provider.requests)

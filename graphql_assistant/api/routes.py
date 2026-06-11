@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from graphql_assistant.agents import AgentPlanningError, GraphQLAssistantAgent, GraphQLAssistantGoal
-from graphql_assistant.agents.tools import InvalidRootFieldNameError
+from graphql_assistant.agents.tools import InvalidRootFieldNameError, RootFieldNotInSchemaError
 from graphql_assistant.api.schemas import (
     AssistantRequest,
     AssistantResultResponse,
@@ -43,7 +43,7 @@ def run_assistant(request: Request, assistant_request: AssistantRequest) -> Assi
                 graphql_call=assistant_request.graphql_call,
             )
         )
-    except (AgentPlanningError, InvalidRootFieldNameError) as exc:
+    except (AgentPlanningError, InvalidRootFieldNameError, RootFieldNotInSchemaError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

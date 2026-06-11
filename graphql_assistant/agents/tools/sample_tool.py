@@ -47,6 +47,10 @@ class InvalidRootFieldNameError(ValueError):
     """Raised when an API root field is not a valid GraphQL field name."""
 
 
+class RootFieldNotInSchemaError(ValueError):
+    """Raised when a requested root field is not defined on Query or Mutation."""
+
+
 class SampleTool:
     """RAG-backed assistant tool for sample GraphQL operation generation.
 
@@ -114,7 +118,7 @@ class SampleTool:
         match the current schema, this method fails fast instead of returning a
         partially-correct sample.
         """
-        normalized_root_field = validate_root_field_request(root_field)
+        normalized_root_field = validate_root_field_against_schema(root_field, self.settings.schema_file)
 
         operation_name = f"{_pascal_case(normalized_root_field)}Query"
         response_type = _response_type_name(normalized_root_field)
@@ -256,6 +260,43 @@ def validate_root_field_request(root_field: str) -> str:
         )
 
     return normalized_root_field
+
+
+def validate_root_field_against_schema(root_field: str, schema_file: Any) -> str:
+    """Validate that a requested root field exists on Query or Mutation.
+
+    This keeps assistant requests deterministic before retrieval or inference.
+    The function first validates GraphQL field-name syntax, then checks the
+    active schema's Query and Mutation root types for the requested field.
+    """
+    normalized_root_field = validate_root_field_request(root_field)
+    root_fields = _load_schema_root_fields(schema_file)
+    if normalized_root_field not in root_fields:
+        available_fields = ", ".join(sorted(root_fields))
+        raise RootFieldNotInSchemaError(
+            "No GraphQL Query or Mutation field named "
+            f"`{normalized_root_field}` exists in the current schema. "
+            f"Available root fields: {available_fields}."
+        )
+
+    return normalized_root_field
+
+
+def _load_schema_root_fields(schema_file: Any) -> set[str]:
+    try:
+        from graphql import build_schema
+    except ImportError as exc:
+        raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
+
+    schema = build_schema(schema_file.read_text(encoding="utf-8"))
+    root_fields: set[str] = set()
+
+    if schema.query_type is not None:
+        root_fields.update(schema.query_type.fields.keys())
+    if schema.mutation_type is not None:
+        root_fields.update(schema.mutation_type.fields.keys())
+
+    return root_fields
 
 
 def _pascal_case(value: str) -> str:

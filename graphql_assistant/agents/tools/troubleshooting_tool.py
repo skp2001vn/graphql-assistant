@@ -4,7 +4,10 @@ import re
 from threading import Lock
 from typing import Any
 
-from graphql_assistant.agents.tools.sample_tool import InvalidRootFieldNameError, validate_root_field_request
+from graphql_assistant.agents.tools.sample_tool import (
+    InvalidRootFieldNameError,
+    validate_root_field_against_schema,
+)
 from graphql_assistant.core.config import AppSettings, get_settings
 from graphql_assistant.core.protocols import SchemaContextProvider
 from graphql_assistant.domain import TroubleshootingResult
@@ -66,7 +69,7 @@ Submitted operation:
 CODE_BLOCK_RE = re.compile(r"```(?:[A-Za-z0-9_-]+)?\s*(.*?)```", flags=re.DOTALL)
 
 
-def validate_troubleshooting_input(root_field: str, graphql_call: str) -> tuple[str, str]:
+def validate_troubleshooting_input(root_field: str, graphql_call: str, schema_file: Any) -> tuple[str, str]:
     """Normalize troubleshooting input before validation and inference.
 
     This is the first guardrail in the troubleshooting workflow. It keeps the
@@ -74,7 +77,7 @@ def validate_troubleshooting_input(root_field: str, graphql_call: str) -> tuple[
     a non-empty submitted operation instead of trying to recover from malformed
     request payloads later in the pipeline.
     """
-    normalized_root_field = validate_root_field_request(root_field)
+    normalized_root_field = validate_root_field_against_schema(root_field, schema_file)
     normalized_graphql_call = graphql_call.strip()
     if not normalized_graphql_call:
         raise InvalidRootFieldNameError("GraphQL call body must not be empty.")
@@ -221,7 +224,11 @@ class TroubleshootingTool:
         can explain model output, but it does not trust model output until the
         schema validator accepts it.
         """
-        normalized_root_field, normalized_graphql_call = validate_troubleshooting_input(root_field, graphql_call)
+        normalized_root_field, normalized_graphql_call = validate_troubleshooting_input(
+            root_field,
+            graphql_call,
+            self.settings.schema_file,
+        )
         validation_issues = self.validator.validate(normalized_graphql_call)
         if not validation_issues:
             return TroubleshootingResult(

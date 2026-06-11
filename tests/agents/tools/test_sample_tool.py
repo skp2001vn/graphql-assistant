@@ -7,9 +7,11 @@ from pathlib import Path
 from graphql_assistant.core.config import AppSettings
 from graphql_assistant.agents.tools.sample_tool import (
     InvalidRootFieldNameError,
+    RootFieldNotInSchemaError,
     SampleTool,
     parse_generated_sample,
     validate_operation_against_schema,
+    validate_root_field_against_schema,
     validate_root_field_request,
     validate_variable_usage,
 )
@@ -224,6 +226,10 @@ query CountryQuery($code: ID!) {
 
         self.assertEqual("city", root_field)
 
+    def test_validate_root_field_against_schema_rejects_unknown_root_field(self) -> None:
+        with self.assertRaisesRegex(RootFieldNotInSchemaError, "No GraphQL Query or Mutation field named `city`"):
+            validate_root_field_against_schema("city", self.schema_file)
+
     def test_generate_uses_root_field_rag_context_llm_and_validates_output(self) -> None:
         llm_response = """
 ```graphql
@@ -255,6 +261,16 @@ query ContinentQuery($code: ID!) {
         self.assertIn("Response type:\nContinent", llm_client.prompts[0])
         self.assertIn("Operation name:\nContinentQuery", llm_client.prompts[0])
         self.assertEqual("GraphQL Query or Mutation root field continent", schema_context_provider.requests[0])
+
+    def test_generate_rejects_root_field_missing_from_schema(self) -> None:
+        tool = SampleTool(
+            settings=self.settings,
+            llm_client=FakeLLMClient("unused"),
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        with self.assertRaisesRegex(RootFieldNotInSchemaError, "No GraphQL Query or Mutation field named `city`"):
+            tool.generate("city")
 
     def test_generate_builds_root_field_request_and_uses_ai_path(self) -> None:
         llm_response = """
