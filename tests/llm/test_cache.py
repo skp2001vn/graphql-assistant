@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from graphql_ai.llm.cache import CachedLLMClient, PromptResponseCache
+from graphql_assistant.llm.cache import CachedLLMClient, PromptResponseCache
 
 
 class FakeLLMClient:

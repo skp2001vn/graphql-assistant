@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from graphql_ai.llm.base import LLMClient
+from graphql_assistant.llm.base import LLMClient
 
 
 class PromptResponseCache:

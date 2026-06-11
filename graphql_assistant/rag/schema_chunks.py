@@ -4,7 +4,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from graphql_ai.domain import SchemaChunk
+from graphql_assistant.domain import SchemaChunk
 
 
 SCHEMA_CHUNK_VERSION = "2"

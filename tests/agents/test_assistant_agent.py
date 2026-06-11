@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from graphql_ai.agents import AgentPlanningError, GraphQLAssistantAgent, GraphQLAssistantGoal
-from graphql_ai.agents.assistant_agent import AgnoAssistantPlanner
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant.agents import AgentPlanningError, GraphQLAssistantAgent, GraphQLAssistantGoal
+from graphql_assistant.agents.assistant_agent import AgnoAssistantPlanner
+from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
 
 
 class FakeLLMClient:

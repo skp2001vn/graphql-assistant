@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from graphql_ai.rag.schema_chunks import (
+from graphql_assistant.rag.schema_chunks import (
     chunk_graphql_schema,
     load_schema_chunks,
     read_schema_file,

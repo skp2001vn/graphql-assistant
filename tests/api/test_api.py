@@ -6,11 +6,11 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from graphql_ai.agents import AgentPlanningError, GraphQLAssistantGoal, GraphQLAssistantResult
-from graphql_ai.api.routes import router
-from graphql_ai.core.responses import PrettyJSONResponse
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
-from graphql_ai.main import create_app
+from graphql_assistant.agents import AgentPlanningError, GraphQLAssistantGoal, GraphQLAssistantResult
+from graphql_assistant.api.routes import router
+from graphql_assistant.core.responses import PrettyJSONResponse
+from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant.main import create_app
 
 
 class FakeLLMPreWarmer:
@@ -209,16 +209,16 @@ class ApiTest(unittest.TestCase):
         pre_warmer = FakeLLMPreWarmer(settings, llm_client)
 
         with (
-            patch("graphql_ai.main.get_settings", return_value=settings),
-            patch("graphql_ai.main.SchemaVectorStore", return_value=schema_context_provider) as vector_store_class,
-            patch("graphql_ai.main.build_llm_client", return_value=llm_client) as llm_factory,
-            patch("graphql_ai.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
-            patch("graphql_ai.main.SampleTool", return_value=sample_tool) as sample_tool_class,
+            patch("graphql_assistant.main.get_settings", return_value=settings),
+            patch("graphql_assistant.main.SchemaVectorStore", return_value=schema_context_provider) as vector_store_class,
+            patch("graphql_assistant.main.build_llm_client", return_value=llm_client) as llm_factory,
+            patch("graphql_assistant.main.LLMPreWarmer", return_value=pre_warmer) as pre_warmer_class,
+            patch("graphql_assistant.main.SampleTool", return_value=sample_tool) as sample_tool_class,
             patch(
-                "graphql_ai.main.TroubleshootingTool",
+                "graphql_assistant.main.TroubleshootingTool",
                 return_value=troubleshooting_tool,
             ) as troubleshooting_tool_class,
-            patch("graphql_ai.main.GraphQLAssistantAgent") as agent_class,
+            patch("graphql_assistant.main.GraphQLAssistantAgent") as agent_class,
         ):
             app = create_app()
             with TestClient(app) as client:

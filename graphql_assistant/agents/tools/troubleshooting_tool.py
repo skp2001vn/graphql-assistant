@@ -4,14 +4,14 @@ import re
 from threading import Lock
 from typing import Any
 
-from graphql_ai.agents.tools.sample_tool import InvalidRootFieldNameError, validate_root_field_request
-from graphql_ai.core.config import AppSettings, get_settings
-from graphql_ai.core.protocols import SchemaContextProvider
-from graphql_ai.domain import TroubleshootingResult
-from graphql_ai.llm.base import LLMClient
-from graphql_ai.llm.factory import build_llm_client
-from graphql_ai.llm.pre_warm import LLMPreWarmer
-from graphql_ai.rag.vector_store import SchemaVectorStore
+from graphql_assistant.agents.tools.sample_tool import InvalidRootFieldNameError, validate_root_field_request
+from graphql_assistant.core.config import AppSettings, get_settings
+from graphql_assistant.core.protocols import SchemaContextProvider
+from graphql_assistant.domain import TroubleshootingResult
+from graphql_assistant.llm.base import LLMClient
+from graphql_assistant.llm.factory import build_llm_client
+from graphql_assistant.llm.pre_warm import LLMPreWarmer
+from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 
 TROUBLESHOOTING_SYSTEM_PROMPT = (

@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from graphql_ai.core.config import AppSettings
-from graphql_ai.agents.tools.sample_tool import (
+from graphql_assistant.core.config import AppSettings
+from graphql_assistant.agents.tools.sample_tool import (
     InvalidRootFieldNameError,
     SampleTool,
     parse_generated_sample,

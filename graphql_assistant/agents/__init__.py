@@ -1,6 +1,6 @@
 """Agent workflows for GraphQL assistant use cases."""
 
-from graphql_ai.agents.assistant_agent import (
+from graphql_assistant.agents.assistant_agent import (
     AgentPlanningError,
     GraphQLAssistantAgent,
     GraphQLAssistantGoal,

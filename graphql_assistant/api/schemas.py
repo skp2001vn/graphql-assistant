@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class AssistantRequest(BaseModel):
-    """Natural-language request for the GraphQL AI assistant."""
+    """Natural-language request for the GraphQL Assistant."""
 
     goal: str = Field(min_length=1, description="Natural-language assistant goal.")
     root_field: str = Field(
@@ -20,7 +20,7 @@ class AssistantRequest(BaseModel):
 
 
 class AssistantResultResponse(BaseModel):
-    """HTTP response for the GraphQL AI assistant final result."""
+    """HTTP response for the GraphQL Assistant final result."""
 
     type: str
     operation: list[str] | None = None

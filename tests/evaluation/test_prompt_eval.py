@@ -7,9 +7,9 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
-from graphql_ai.evaluation import prompt_eval
-from graphql_ai.evaluation.prompt_eval import (
+from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant.evaluation import prompt_eval
+from graphql_assistant.evaluation.prompt_eval import (
     SamplePromptEvalCase,
     TroubleshootingPromptEvalCase,
     run_sample_prompt_eval_cases,
@@ -161,9 +161,9 @@ query CountryQuery($code: ID!) {
         result = prompt_eval.PromptEvalResult("sample", "case", True, ("PASS check",))
 
         with patch("sys.argv", ["prompt-eval", "--workflow", "sample"]):
-            with patch("graphql_ai.evaluation.prompt_eval.SampleTool", FakeMainSampleTool):
-                with patch("graphql_ai.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
-                    with patch("graphql_ai.evaluation.prompt_eval.run_sample_prompt_eval_cases", return_value=[result]):
+            with patch("graphql_assistant.evaluation.prompt_eval.SampleTool", FakeMainSampleTool):
+                with patch("graphql_assistant.evaluation.prompt_eval.TroubleshootingTool", FakeMainTroubleshootingTool):
+                    with patch("graphql_assistant.evaluation.prompt_eval.run_sample_prompt_eval_cases", return_value=[result]):
                         with redirect_stdout(output):
                             prompt_eval.main()
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock, patch
 
-from graphql_ai.core.config import AppSettings
-from graphql_ai.llm.ollama_client import OllamaClient
+from graphql_assistant.core.config import AppSettings
+from graphql_assistant.llm.ollama_client import OllamaClient
 
 
 class OllamaClientTest(unittest.TestCase):

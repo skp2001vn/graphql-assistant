@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock, patch
 
-from graphql_ai.core.config import AppSettings
-from graphql_ai.llm.openai_client import OpenAIClient
+from graphql_assistant.core.config import AppSettings
+from graphql_assistant.llm.openai_client import OpenAIClient
 
 
 class OpenAIClientTest(unittest.TestCase):

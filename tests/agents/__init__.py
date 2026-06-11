@@ -1,1 +1,1 @@
-"""Tests for GraphQL AI agent workflows."""
+"""Tests for GraphQL Assistant agent workflows."""

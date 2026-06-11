@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from graphql_ai.llm.base import LLMClient
+from graphql_assistant.llm.base import LLMClient
 
 
 class LLMClientAgnoModel:
@@ -19,7 +19,7 @@ class LLMClientAgnoModel:
 
         class _LLMClientAgnoModel(Model):
             def __init__(self, wrapped_llm_client: LLMClient) -> None:
-                super().__init__(id="graphql-ai-llm-client", provider="graphql_ai")
+                super().__init__(id="graphql-assistant-llm-client", provider="graphql_assistant")
                 self.wrapped_llm_client = wrapped_llm_client
 
             def response(

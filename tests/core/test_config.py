@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from graphql_ai.core.config import AppSettings, get_settings
+from graphql_assistant.core.config import AppSettings, get_settings
 
 
 class ConfigTest(unittest.TestCase):

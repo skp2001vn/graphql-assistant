@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from graphql_ai.domain import GeneratedGraphQLSample, SchemaChunk
+from graphql_assistant.domain import GeneratedGraphQLSample, SchemaChunk
 
 
 class DomainTest(unittest.TestCase):

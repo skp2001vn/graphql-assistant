@@ -5,8 +5,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from graphql_ai import cli
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant import cli
+from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
 
 
 class FakeLLMPreWarmer:
@@ -76,13 +76,13 @@ class CliTest(unittest.TestCase):
 
         with (
             patch("sys.argv", ["graphql-ai", "--rebuild", "Generate a sample query", "countries"]),
-            patch("graphql_ai.cli.get_settings", return_value=object()),
-            patch("graphql_ai.cli.SchemaVectorStore", return_value=object()),
-            patch("graphql_ai.cli.build_llm_client", return_value=object()),
-            patch("graphql_ai.cli.LLMPreWarmer", return_value=FakeLLMPreWarmer()),
-            patch("graphql_ai.cli.SampleTool", return_value=object()),
-            patch("graphql_ai.cli.TroubleshootingTool", return_value=object()),
-            patch("graphql_ai.cli.GraphQLAssistantAgent", FakeAssistantAgent),
+            patch("graphql_assistant.cli.get_settings", return_value=object()),
+            patch("graphql_assistant.cli.SchemaVectorStore", return_value=object()),
+            patch("graphql_assistant.cli.build_llm_client", return_value=object()),
+            patch("graphql_assistant.cli.LLMPreWarmer", return_value=FakeLLMPreWarmer()),
+            patch("graphql_assistant.cli.SampleTool", return_value=object()),
+            patch("graphql_assistant.cli.TroubleshootingTool", return_value=object()),
+            patch("graphql_assistant.cli.GraphQLAssistantAgent", FakeAssistantAgent),
         ):
             with redirect_stdout(output):
                 cli.main()
@@ -105,13 +105,13 @@ class CliTest(unittest.TestCase):
                     "query CountryQuery { country { code1 } }",
                 ],
             ),
-            patch("graphql_ai.cli.get_settings", return_value=object()),
-            patch("graphql_ai.cli.SchemaVectorStore", return_value=object()),
-            patch("graphql_ai.cli.build_llm_client", return_value=object()),
-            patch("graphql_ai.cli.LLMPreWarmer", return_value=FakeLLMPreWarmer()),
-            patch("graphql_ai.cli.SampleTool", return_value=object()),
-            patch("graphql_ai.cli.TroubleshootingTool", return_value=object()),
-            patch("graphql_ai.cli.GraphQLAssistantAgent", FakeAssistantAgent),
+            patch("graphql_assistant.cli.get_settings", return_value=object()),
+            patch("graphql_assistant.cli.SchemaVectorStore", return_value=object()),
+            patch("graphql_assistant.cli.build_llm_client", return_value=object()),
+            patch("graphql_assistant.cli.LLMPreWarmer", return_value=FakeLLMPreWarmer()),
+            patch("graphql_assistant.cli.SampleTool", return_value=object()),
+            patch("graphql_assistant.cli.TroubleshootingTool", return_value=object()),
+            patch("graphql_assistant.cli.GraphQLAssistantAgent", FakeAssistantAgent),
         ):
             with redirect_stdout(output):
                 cli.main()

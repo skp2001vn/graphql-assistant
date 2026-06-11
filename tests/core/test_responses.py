@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from graphql_ai.core.responses import PrettyJSONResponse
+from graphql_assistant.core.responses import PrettyJSONResponse
 
 
 class ResponsesTest(unittest.TestCase):

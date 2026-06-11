@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from threading import Lock
 
-from graphql_ai.core.config import AppSettings
-from graphql_ai.llm.base import LLMClient
+from graphql_assistant.core.config import AppSettings
+from graphql_assistant.llm.base import LLMClient
 
 
 class LLMPreWarmer:

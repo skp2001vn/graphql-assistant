@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from graphql_ai.core.config import AppSettings
-from graphql_ai.rag.vector_store import SchemaVectorStore
+from graphql_assistant.core.config import AppSettings
+from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 
 SCHEMA = """
@@ -84,7 +84,7 @@ class VectorStoreTest(unittest.TestCase):
     def test_retrieve_schema_context_caches_final_context(self) -> None:
         store = self.build_store_without_chroma()
 
-        with patch("graphql_ai.rag.vector_store.embed_texts", return_value=[[0.1, 0.2]]):
+        with patch("graphql_assistant.rag.vector_store.embed_texts", return_value=[[0.1, 0.2]]):
             first_context = store.retrieve_schema_context("country")
             second_context = store.retrieve_schema_context("country")
 

@@ -4,13 +4,13 @@ import argparse
 from dataclasses import dataclass
 from typing import Iterable, Protocol
 
-from graphql_ai.agents.tools import (
+from graphql_assistant.agents.tools import (
     SampleTool,
     TroubleshootingTool,
     validate_operation_against_schema,
     validate_variable_usage,
 )
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
 
 
 @dataclass(frozen=True)

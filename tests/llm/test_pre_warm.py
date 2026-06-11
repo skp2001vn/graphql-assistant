@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from graphql_ai.core.config import AppSettings
-from graphql_ai.llm.pre_warm import LLMPreWarmer
+from graphql_assistant.core.config import AppSettings
+from graphql_assistant.llm.pre_warm import LLMPreWarmer
 
 
 class FakeLLMClient:

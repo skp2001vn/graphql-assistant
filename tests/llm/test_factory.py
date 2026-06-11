@@ -4,11 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from graphql_ai.core.config import AppSettings
-from graphql_ai.llm.cache import CachedLLMClient
-from graphql_ai.llm.factory import build_llm_client
-from graphql_ai.llm.ollama_client import OllamaClient
-from graphql_ai.llm.openai_client import OpenAIClient
+from graphql_assistant.core.config import AppSettings
+from graphql_assistant.llm.cache import CachedLLMClient
+from graphql_assistant.llm.factory import build_llm_client
+from graphql_assistant.llm.ollama_client import OllamaClient
+from graphql_assistant.llm.openai_client import OpenAIClient
 
 
 class LLMFactoryTest(unittest.TestCase):

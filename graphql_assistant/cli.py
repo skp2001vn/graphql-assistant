@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 
-from graphql_ai.agents import GraphQLAssistantAgent, GraphQLAssistantGoal
-from graphql_ai.agents.tools import SampleTool, TroubleshootingTool
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
-from graphql_ai.core.config import get_settings
-from graphql_ai.llm.factory import build_llm_client
-from graphql_ai.llm.pre_warm import LLMPreWarmer
-from graphql_ai.rag.vector_store import SchemaVectorStore
+from graphql_assistant.agents import GraphQLAssistantAgent, GraphQLAssistantGoal
+from graphql_assistant.agents.tools import SampleTool, TroubleshootingTool
+from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant.core.config import get_settings
+from graphql_assistant.llm.factory import build_llm_client
+from graphql_assistant.llm.pre_warm import LLMPreWarmer
+from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 
 def parse_args() -> argparse.Namespace:

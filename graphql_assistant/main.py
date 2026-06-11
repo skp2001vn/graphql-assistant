@@ -4,14 +4,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from graphql_ai.agents import GraphQLAssistantAgent
-from graphql_ai.agents.tools import SampleTool, TroubleshootingTool
-from graphql_ai.api.routes import router
-from graphql_ai.core.config import get_settings
-from graphql_ai.core.responses import PrettyJSONResponse
-from graphql_ai.llm.factory import build_llm_client
-from graphql_ai.llm.pre_warm import LLMPreWarmer
-from graphql_ai.rag.vector_store import SchemaVectorStore
+from graphql_assistant.agents import GraphQLAssistantAgent
+from graphql_assistant.agents.tools import SampleTool, TroubleshootingTool
+from graphql_assistant.api.routes import router
+from graphql_assistant.core.config import get_settings
+from graphql_assistant.core.responses import PrettyJSONResponse
+from graphql_assistant.llm.factory import build_llm_client
+from graphql_assistant.llm.pre_warm import LLMPreWarmer
+from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 
 @asynccontextmanager
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="GraphQL AI Examples API",
+        title="GraphQL Assistant Examples API",
         version="0.1.0",
         lifespan=lifespan,
         default_response_class=PrettyJSONResponse,

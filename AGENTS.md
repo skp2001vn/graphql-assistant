@@ -5,7 +5,7 @@ This project generates and troubleshoots GraphQL operations from schema files.
 ## Architecture
 
 ```text
-graphql_ai/
+graphql_assistant/
   agents/
     tools/
   api/
@@ -25,9 +25,9 @@ tests/
 ## Layering Rules
 
 - Routes stay thin.
-- Agents belong in `graphql_ai/agents`.
+- Agents belong in `graphql_assistant/agents`.
 - Assistant tools own GraphQL assistant workflows.
-- RAG belongs in `graphql_ai/rag`.
+- RAG belongs in `graphql_assistant/rag`.
 - Prefer interfaces when multiple implementations are expected.
 - Do not create packages for future features.
 
@@ -40,8 +40,8 @@ tests/
 
 ## FastAPI
 
-- Create the app in `graphql_ai/main.py`.
-- Register routes in `graphql_ai/api/routes.py`.
+- Create the app in `graphql_assistant/main.py`.
+- Register routes in `graphql_assistant/api/routes.py`.
 - Use lifespan for application initialization.
 - Do not call LLM or RAG code directly from routes.
 
@@ -67,7 +67,7 @@ tests/
 Smoke test API changes when relevant:
 
 ```bash
-uvicorn graphql_ai.main:app --host 127.0.0.1 --port 8082
+uvicorn graphql_assistant.main:app --host 127.0.0.1 --port 8082
 curl -X POST http://127.0.0.1:8082/assistant \
   -H "Content-Type: application/json" \
   --data '{"goal": "Generate a sample query", "root_field": "country"}'

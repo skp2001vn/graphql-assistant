@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from graphql_ai.core.config import AppSettings, get_settings
+from graphql_assistant.core.config import AppSettings, get_settings
 
 
 class OpenAIClient:

@@ -5,10 +5,10 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from graphql_ai.agents.tools import SampleTool, TroubleshootingTool
-from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
-from graphql_ai.llm.agno_adapter import LLMClientAgnoModel
-from graphql_ai.llm.base import LLMClient
+from graphql_assistant.agents.tools import SampleTool, TroubleshootingTool
+from graphql_assistant.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_assistant.llm.agno_adapter import LLMClientAgnoModel
+from graphql_assistant.llm.base import LLMClient
 
 
 GraphQLAssistantIntent = Literal["generate_sample", "troubleshoot"]

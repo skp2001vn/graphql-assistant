@@ -5,13 +5,13 @@ import re
 from threading import Lock
 from typing import Any
 
-from graphql_ai.core.config import AppSettings, get_settings
-from graphql_ai.core.protocols import SchemaContextProvider
-from graphql_ai.domain import GeneratedGraphQLSample
-from graphql_ai.llm.base import LLMClient
-from graphql_ai.llm.factory import build_llm_client
-from graphql_ai.llm.pre_warm import LLMPreWarmer
-from graphql_ai.rag.vector_store import SchemaVectorStore
+from graphql_assistant.core.config import AppSettings, get_settings
+from graphql_assistant.core.protocols import SchemaContextProvider
+from graphql_assistant.domain import GeneratedGraphQLSample
+from graphql_assistant.llm.base import LLMClient
+from graphql_assistant.llm.factory import build_llm_client
+from graphql_assistant.llm.pre_warm import LLMPreWarmer
+from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 
 GRAPHQL_SYSTEM_PROMPT = (

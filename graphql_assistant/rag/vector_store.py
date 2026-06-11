@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from graphql_ai.core.config import AppSettings, get_settings
-from graphql_ai.rag.embeddings import embed_texts
-from graphql_ai.rag.schema_chunks import SCHEMA_CHUNK_VERSION, load_schema_chunks
+from graphql_assistant.core.config import AppSettings, get_settings
+from graphql_assistant.rag.embeddings import embed_texts
+from graphql_assistant.rag.schema_chunks import SCHEMA_CHUNK_VERSION, load_schema_chunks
 
 
 CACHE_METADATA_FILE = "index_metadata.json"
