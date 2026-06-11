@@ -6,12 +6,11 @@ The application exposes one assistant surface, `/assistant`, and supports two wo
 
 - generate a sample GraphQL operation for a root field
 - troubleshoot a submitted GraphQL operation against the active schema
+- generate mock data and documentation: future extension.
 
 The application supports OpenAI API and local Ollama.
 
-## AI Concepts Covered
-
-This project highlights common AI application patterns:
+## AI Concepts Covered in this application 
 
 - RAG: retrieves schema context before generation.
 - Embeddings: converts GraphQL SDL chunks into vectors.
@@ -26,9 +25,7 @@ This project highlights common AI application patterns:
 - Agent: coordinates a goal, planner decision, tool execution, and inference through the unified assistant surface.
 - Plan: the assistant reduces the user request to a structured intent such as `generate_sample`, `troubleshoot`, or `unsupported`.
 - Tools: deterministic helpers and focused workflows for sample generation, GraphQL validation, and schema-aware troubleshooting.
-- Tool observations: schema validation issues and retrieved schema context passed into inference for corrective prompting.
 - Prompt evaluation: runs fixed assistant cases and scores model output with existing GraphQL guardrails.
-- Model routing: future extension point for selecting providers or models per workflow.
 
 ## RAG Pipeline
 
