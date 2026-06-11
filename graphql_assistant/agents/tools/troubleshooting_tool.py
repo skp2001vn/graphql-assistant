@@ -85,85 +85,6 @@ def validate_troubleshooting_input(root_field: str, graphql_call: str, schema_fi
     return normalized_root_field, normalized_graphql_call
 
 
-class GraphQLValidator:
-    """Deterministic GraphQL-core validator for troubleshooting requests.
-
-    The assistant uses this component before any LLM call. It separates
-    parser/schema validation from model reasoning so the tool can:
-
-    - short-circuit valid operations without spending tokens,
-    - feed concrete validation issues into the prompt as grounded evidence,
-    - and verify whether the model's proposed correction is actually valid.
-    """
-
-    def __init__(self, schema_file: Any) -> None:
-        """Create a validator with a parsed schema cached in memory.
-
-        The schema is built once at construction time because troubleshooting
-        requests may validate both the original operation and a model-proposed
-        correction in the same tool run.
-        """
-        self.schema_file = schema_file
-        self.schema = self._build_schema()
-
-    def validate(self, graphql_call: str) -> list[str]:
-        """Return parser and schema-validation issues for a submitted operation.
-
-        The output is a normalized list of human-readable issues that can be
-        reused both as API-facing diagnostics and as grounded prompt context
-        for corrective generation.
-        """
-        try:
-            from graphql import parse, validate
-        except ImportError as exc:
-            raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
-
-        try:
-            document = parse(graphql_call)
-        except Exception as exc:
-            return [format_graphql_issue(exc)]
-
-        return [format_graphql_issue(error) for error in validate(self.schema, document)]
-
-    def _build_schema(self) -> Any:
-        try:
-            from graphql import build_schema
-        except ImportError as exc:
-            raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
-
-        return build_schema(self.schema_file.read_text(encoding="utf-8"))
-
-
-class SchemaContextRetriever:
-    """Lightweight schema-context retriever for troubleshooting prompts.
-
-    Troubleshooting and sample generation both use retrieval-augmented
-    prompting, but the retrieval query here is optimized for error analysis
-    rather than synthesis. The retriever also caches context per root field so
-    repeated troubleshooting calls avoid redundant vector lookups.
-    """
-
-    def __init__(self, schema_context_provider: SchemaContextProvider) -> None:
-        """Create a retriever with in-memory caching keyed by root field."""
-        self.schema_context_provider = schema_context_provider
-        self._cache: dict[str, str] = {}
-
-    def retrieve(self, root_field: str) -> str:
-        """Retrieve prompt-ready schema context for the field under analysis.
-
-        The returned text is not the entire schema. It is the narrowed context
-        retrieved from the RAG layer and injected into the troubleshooting
-        prompt to reduce prompt size while preserving relevant type and field
-        definitions.
-        """
-        if root_field not in self._cache:
-            self._cache[root_field] = self.schema_context_provider.retrieve_schema_context(
-                f"Troubleshoot GraphQL Query or Mutation root field {root_field}"
-            )
-
-        return self._cache[root_field]
-
-
 class TroubleshootingTool:
     """Assistant tool for GraphQL validation and corrective suggestion.
 
@@ -206,8 +127,8 @@ class TroubleshootingTool:
             settings=self.settings,
             allow_downloads=allow_downloads,
         )
-        self.validator = GraphQLValidator(self.settings.schema_file)
-        self.schema_context_retriever = SchemaContextRetriever(self.schema_context_provider)
+        self._schema = self._build_schema()
+        self._schema_context_cache: dict[str, str] = {}
         self._inference_lock = Lock()
 
     def troubleshoot(self, root_field: str, graphql_call: str) -> TroubleshootingResult:
@@ -229,7 +150,7 @@ class TroubleshootingTool:
             graphql_call,
             self.settings.schema_file,
         )
-        validation_issues = self.validator.validate(normalized_graphql_call)
+        validation_issues = self._validate_graphql(normalized_graphql_call)
         if not validation_issues:
             return TroubleshootingResult(
                 root_field=normalized_root_field,
@@ -240,7 +161,7 @@ class TroubleshootingTool:
                 raw_response="",
             )
 
-        schema_context = self.schema_context_retriever.retrieve(normalized_root_field)
+        schema_context = self._retrieve_schema_context(normalized_root_field)
 
         with self._inference_lock:
             self.llm_pre_warmer.pre_warm()
@@ -253,12 +174,11 @@ class TroubleshootingTool:
                 )
             )
 
-        detail, suggested_operation = parse_troubleshooting_response(raw_response)
-        detail = clean_model_detail(detail, validation_issues)
+        detail, suggested_operation = parse_troubleshooting_response(raw_response, validation_issues)
 
         corrected_issues = []
         if suggested_operation:
-            corrected_issues = self.validator.validate(suggested_operation)
+            corrected_issues = self._validate_graphql(suggested_operation)
             if corrected_issues:
                 suggested_operation = ""
 
@@ -293,21 +213,50 @@ class TroubleshootingTool:
     def _build_default_llm_client(self) -> LLMClient:
         return build_llm_client(self.settings, namespace_prefix="troubleshooting")
 
+    def _retrieve_schema_context(self, root_field: str) -> str:
+        if root_field not in self._schema_context_cache:
+            self._schema_context_cache[root_field] = self.schema_context_provider.retrieve_schema_context(
+                f"Troubleshoot GraphQL Query or Mutation root field {root_field}"
+            )
 
-def parse_troubleshooting_response(raw_response: str) -> tuple[list[str], str]:
+        return self._schema_context_cache[root_field]
+
+    def _validate_graphql(self, graphql_call: str) -> list[str]:
+        try:
+            from graphql import parse, validate
+        except ImportError as exc:
+            raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
+
+        try:
+            document = parse(graphql_call)
+        except Exception as exc:
+            return [format_graphql_issue(exc)]
+
+        return [format_graphql_issue(error) for error in validate(self._schema, document)]
+
+    def _build_schema(self) -> Any:
+        try:
+            from graphql import build_schema
+        except ImportError as exc:
+            raise RuntimeError("Missing dependency: install graphql-core with `pip install -r requirements.txt`.") from exc
+
+        return build_schema(self.settings.schema_file.read_text(encoding="utf-8"))
+
+
+def parse_troubleshooting_response(raw_response: str, issues: list[str]) -> tuple[list[str], str]:
     """Parse inference into detail text and a suggested operation."""
     labeled_detail = _extract_labeled_code_block(raw_response, "DETAIL")
     labeled_suggestion = _extract_labeled_code_block(raw_response, "SUGGESTION")
     if labeled_detail is not None or labeled_suggestion is not None:
-        return normalize_detail(labeled_detail or ""), (labeled_suggestion or "").strip()
+        return _parse_detail(labeled_detail or "", issues), (labeled_suggestion or "").strip()
 
     code_blocks = CODE_BLOCK_RE.findall(raw_response)
     if not code_blocks:
-        return normalize_detail(raw_response), ""
+        return _parse_detail(raw_response, issues), ""
     if len(code_blocks) == 1 and looks_like_graphql_operation(code_blocks[0]):
         return [], code_blocks[0].strip()
 
-    detail = normalize_detail(code_blocks[0])
+    detail = _parse_detail(code_blocks[0], issues)
     suggested_operation = code_blocks[1].strip() if len(code_blocks) > 1 else ""
     return detail, suggested_operation
 
@@ -321,21 +270,16 @@ def _extract_labeled_code_block(raw_response: str, label: str) -> str | None:
     return match.group(1)
 
 
-def normalize_detail(raw_detail: str) -> list[str]:
-    """Normalize model detail output into readable response lines."""
+def _parse_detail(raw_detail: str, issues: list[str]) -> list[str]:
+    """Normalize model detail output and keep only explanation lines."""
     detail = raw_detail.strip()
     if not detail:
         return []
 
-    return [line.strip() for line in detail.splitlines() if line.strip()]
-
-
-def clean_model_detail(detail: list[str], issues: list[str]) -> list[str]:
-    """Keep only explanation lines for the response detail field."""
     normalized_issues = [_normalize_issue_line(issue) for issue in issues]
     cleaned_detail = []
 
-    for line in detail:
+    for line in detail.splitlines():
         cleaned_line = line.strip().lstrip("- ").strip()
         if not cleaned_line:
             continue
