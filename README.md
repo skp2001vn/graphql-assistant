@@ -89,7 +89,7 @@ Troubleshoot a GraphQL operation:
 
 ```bash
 .venv/bin/python -m graphql_assistant.cli "Troubleshoot this operation" country \
-  --graphql-call 'query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }'
+  --graphql-call 'query CountryQuery($code: ID!) { country(code) { code name native emoji capital currency continent { code name } languages { code name } } }'
 ```
 
 Use OpenAI instead of Ollama:
@@ -97,7 +97,7 @@ Use OpenAI instead of Ollama:
 ```bash
 LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.4 \
 .venv/bin/python -m graphql_assistant.cli "Troubleshoot this operation" country \
-  --graphql-call 'query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }'
+  --graphql-call 'query CountryQuery($code: ID!) { country(code) { code name native emoji capital currency continent { code name } languages { code name } } }'
 
 ```
 
@@ -131,7 +131,7 @@ curl -X POST http://localhost:8080/assistant \
   --data '{
     "goal": "Troubleshoot this GraphQL operation",
     "root_field": "country",
-    "graphql_call": "query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }"
+    "graphql_call": "query CountryQuery($code: ID!) { country(code) { code name native emoji capital currency continent { code name } languages { code name } } }"
   }'
 ```
 
