@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 from graphql_ai.agents.tools import SampleQueryTool, TroubleshootingTool
 from graphql_ai.domain import GeneratedGraphQLSample, TroubleshootingResult
+from graphql_ai.llm.agno_adapter import LLMClientAgnoModel
 from graphql_ai.llm.base import LLMClient
 
 
@@ -54,31 +55,11 @@ class GraphQLAssistantGoal:
 
 
 @dataclass(frozen=True)
-class AgentPlanStep:
-    """Single LLM-planned step the assistant will execute with a tool."""
-
-    name: str
-    tool_name: str
-    inputs: dict[str, str]
-    reason: str
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """Structured record of a tool invocation made by the assistant."""
-
-    tool_name: str
-    inputs: dict[str, str]
-
-
-@dataclass(frozen=True)
 class GraphQLAssistantResult:
-    """Result of an assistant run, including the selected plan and output."""
+    """Result of an assistant run."""
 
     intent: GraphQLAssistantIntent
     goal: GraphQLAssistantGoal
-    plan: tuple[AgentPlanStep, ...]
-    tool_calls: tuple[ToolCall, ...]
     output: GraphQLAssistantOutput
     raw_plan_response: str
 
@@ -95,56 +76,6 @@ class AssistantPlanner(Protocol):
 
     def choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, str, str]:
         """Return the selected intent, reason, and raw planner response."""
-
-
-class LLMClientAgnoModel:
-    """Lazy Agno model wrapper around the app's existing LLM client."""
-
-    def __new__(cls, llm_client: LLMClient) -> Any:
-        try:
-            from agno.models.base import Model
-            from agno.models.response import ModelResponse
-        except ImportError as exc:
-            raise RuntimeError("Missing dependency: install agno with `pip install -r requirements.txt`.") from exc
-
-        class _LLMClientAgnoModel(Model):
-            def __init__(self, wrapped_llm_client: LLMClient) -> None:
-                super().__init__(id="graphql-ai-llm-client", provider="graphql_ai")
-                self.wrapped_llm_client = wrapped_llm_client
-
-            def response(
-                self,
-                messages: list[Any],
-                response_format: dict[str, Any] | type[BaseModel] | None = None,
-                tools: list[Any] | None = None,
-                tool_choice: str | dict[str, Any] | None = None,
-                tool_call_limit: int | None = None,
-                run_response: Any | None = None,
-                send_media_to_model: bool = True,
-                compression_manager: Any | None = None,
-            ) -> Any:
-                prompt = _format_agno_messages(messages)
-                return ModelResponse(role="assistant", content=self.wrapped_llm_client.generate(prompt))
-
-            def invoke(self, *args: Any, **kwargs: Any) -> Any:
-                return self.response(*args, **kwargs)
-
-            async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
-                return self.invoke(*args, **kwargs)
-
-            def invoke_stream(self, *args: Any, **kwargs: Any) -> Any:
-                yield self.invoke(*args, **kwargs)
-
-            async def ainvoke_stream(self, *args: Any, **kwargs: Any) -> Any:
-                yield self.invoke(*args, **kwargs)
-
-            def _parse_provider_response(self, response: Any, **kwargs: Any) -> Any:
-                return response
-
-            def _parse_provider_response_delta(self, response_delta: Any) -> Any:
-                return response_delta
-
-        return _LLMClientAgnoModel(llm_client)
 
 
 class AgnoAssistantPlanner:
@@ -204,31 +135,25 @@ class GraphQLAssistantAgent:
         if not normalized_goal.root_field:
             raise AgentPlanningError("Assistant request `root_field` must not be empty.")
 
-        intent, reason, raw_plan_response = self._choose_intent(normalized_goal)
-        step = _build_step(normalized_goal, intent, reason)
-        tool_call = ToolCall(tool_name=step.tool_name, inputs=dict(step.inputs))
-
-        if step.tool_name == "sample_query.generate":
-            output: GraphQLAssistantOutput = self.sample_query_tool.generate(step.inputs["root_field"])
-        elif step.tool_name == "troubleshooting.troubleshoot":
-            output = self.troubleshooting_tool.troubleshoot(
-                step.inputs["root_field"],
-                step.inputs["graphql_call"],
-            )
-        else:
-            raise AgentPlanningError(f"Unsupported assistant tool: {step.tool_name}")
+        intent, _, raw_plan_response = self.planner.choose_intent(normalized_goal)
+        output = self._run_tool(intent, normalized_goal)
 
         return GraphQLAssistantResult(
             intent=intent,
             goal=normalized_goal,
-            plan=(step,),
-            tool_calls=(tool_call,),
             output=output,
             raw_plan_response=raw_plan_response,
         )
 
-    def _choose_intent(self, goal: GraphQLAssistantGoal) -> tuple[GraphQLAssistantIntent, str, str]:
-        return self.planner.choose_intent(goal)
+    def _run_tool(self, intent: GraphQLAssistantIntent, goal: GraphQLAssistantGoal) -> GraphQLAssistantOutput:
+        if intent == "generate_sample":
+            return self.sample_query_tool.generate(goal.root_field)
+
+        if goal.graphql_call is None:
+            raise AgentPlanningError(
+                "Troubleshooting requires `graphql_call`. Include the GraphQL operation in the request body."
+            )
+        return self.troubleshooting_tool.troubleshoot(goal.root_field, goal.graphql_call)
 
 
 def _build_planner_input(goal: GraphQLAssistantGoal) -> str:
@@ -238,42 +163,3 @@ def _build_planner_input(goal: GraphQLAssistantGoal) -> str:
         graphql_call=goal.graphql_call or "<not provided>",
     )
 
-
-def _build_step(goal: GraphQLAssistantGoal, intent: GraphQLAssistantIntent, reason: str) -> AgentPlanStep:
-    if intent == "generate_sample":
-        tool_name = "sample_query.generate"
-        inputs = {"root_field": goal.root_field}
-    else:
-        if goal.graphql_call is None:
-            raise AgentPlanningError(
-                "Troubleshooting requires `graphql_call`. Include the GraphQL operation in the request body."
-            )
-        tool_name = "troubleshooting.troubleshoot"
-        inputs = {"root_field": goal.root_field, "graphql_call": goal.graphql_call}
-
-    return AgentPlanStep(
-        name=_tool_step_name(tool_name),
-        tool_name=tool_name,
-        inputs=inputs,
-        reason=reason or f"Selected {intent}.",
-    )
-
-
-def _format_agno_messages(messages: list[Any]) -> str:
-    prompt_parts = []
-    for message in messages:
-        content = getattr(message, "content", None)
-        if isinstance(content, list):
-            content = "\n".join(str(part) for part in content)
-        if content:
-            prompt_parts.append(f"{getattr(message, 'role', 'message').upper()}:\n{content}")
-
-    return "\n\n".join(prompt_parts)
-
-
-def _tool_step_name(tool_name: str) -> str:
-    if tool_name == "sample_query.generate":
-        return "Generate sample GraphQL operation"
-    if tool_name == "troubleshooting.troubleshoot":
-        return "Troubleshoot submitted GraphQL operation"
-    return tool_name

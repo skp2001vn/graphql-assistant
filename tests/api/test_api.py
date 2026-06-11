@@ -55,8 +55,6 @@ class FakeGraphQLAssistantAgent:
         return GraphQLAssistantResult(
             intent=intent,
             goal=goal,
-            plan=(),
-            tool_calls=(),
             output=output,
             raw_plan_response="{}",
         )

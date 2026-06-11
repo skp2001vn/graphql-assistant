@@ -85,8 +85,6 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         self.assertEqual(["country"], sample_tool.root_fields)
         self.assertEqual([], troubleshooting_tool.requests)
         self.assertEqual("generate_sample", result.intent)
-        self.assertEqual("sample_query.generate", result.plan[0].tool_name)
-        self.assertEqual("sample_query.generate", result.tool_calls[0].tool_name)
         self.assertIsInstance(result.output, GeneratedGraphQLSample)
 
     def test_troubleshoot_goal_uses_plan_and_calls_troubleshooting_tool(self) -> None:
@@ -107,7 +105,6 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         self.assertEqual([], sample_tool.root_fields)
         self.assertEqual([("country", graphql_call)], troubleshooting_tool.requests)
         self.assertEqual("troubleshoot", result.intent)
-        self.assertEqual("troubleshooting.troubleshoot", result.plan[0].tool_name)
         self.assertIsInstance(result.output, TroubleshootingResult)
 
     def test_graphql_call_does_not_force_troubleshooting_intent(self) -> None:
