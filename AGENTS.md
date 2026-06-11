@@ -33,7 +33,7 @@ tests/
 
 ## Engineering Principles
 
-- Simplicity first. Prefer the simplest solution that satisfies requirements.
+- Simplicity first. Make every change as simple as possible.
 - Verify generated and corrected GraphQL operations against the schema before returning them.
 - Prefer deterministic validation over model assumptions.
 - Fix root causes instead of symptoms.
