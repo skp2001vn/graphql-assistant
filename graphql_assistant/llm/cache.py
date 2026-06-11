@@ -10,7 +10,7 @@ from graphql_assistant.llm.base import LLMClient
 class PromptResponseCache:
     """File-backed inference cache for completed LLM prompt responses.
 
-    Assistant tools cache final prompt/response pairs so repeated educational demos do
+    Assistant tools cache final prompt/response pairs so repeated requests do
     not call the model provider again when the prompt and model settings match.
     """
 

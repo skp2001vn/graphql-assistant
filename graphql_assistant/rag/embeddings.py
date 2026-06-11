@@ -15,7 +15,7 @@ def get_embedding_model(model_name_or_path: str, allow_downloads: bool = False) 
     keeps one model instance in memory and reuses it until the configured model
     name or local path changes.
 
-    By default, this educational app expects the embedding model to already
+    By default, this application expects the embedding model to already
     exist under `resources/models/`. `allow_downloads=True` is reserved for
     setup or live integration paths that are allowed to reach the network.
     """
@@ -57,8 +57,8 @@ def embed_texts(
 
     Chroma compares the request embedding with stored schema-chunk embeddings.
     Normalizing embeddings makes similarity search more stable across chunks of
-    different lengths and keeps the vector-store behavior deterministic enough
-    for local demos.
+    different lengths and keeps the vector-store behavior stable for repeated
+    local runs.
     """
     embeddings = get_embedding_model(model_name_or_path, allow_downloads).encode(
         texts,

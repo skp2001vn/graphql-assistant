@@ -107,7 +107,7 @@ def make_chunk_id(source: str, kind: str, name: str, text: str) -> str:
 def dedupe_chunks(chunks: list[SchemaChunk]) -> list[SchemaChunk]:
     """Remove duplicate chunks while preserving schema order.
 
-    Preserving order makes indexed chunks easier to inspect during demos, while
+    Preserving order makes indexed chunks easier to inspect and debug, while
     deduplication avoids storing the same definition twice if schema input
     contains repeated text.
     """
