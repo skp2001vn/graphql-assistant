@@ -31,6 +31,16 @@ tests/
 - Prefer interfaces when multiple implementations are expected.
 - Do not create packages for future features.
 
+## Engineering Principles
+
+- Simplicity first. Prefer the simplest solution that satisfies requirements.
+- Verify generated and corrected GraphQL operations against the schema before returning them.
+- Prefer deterministic validation over model assumptions.
+- Fix root causes instead of symptoms.
+- Keep changes small and localized.
+- Reuse existing services before introducing new abstractions.
+- Document the reasoning behind non-trivial design decisions.
+
 ## Naming
 
 - Use clear module names.
