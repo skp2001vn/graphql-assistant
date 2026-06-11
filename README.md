@@ -8,7 +8,7 @@ The application exposes one assistant surface, `/assistant`, and supports workfl
 - troubleshoot a submitted GraphQL query/mutation against the active schema
 - generate mock data and documentation: future extension.
 
-The application supports OpenAI API and local Ollama.
+The application supports OpenAI API and local Ollama (by default).
 
 ## AI Concepts Covered 
 
@@ -89,14 +89,16 @@ Troubleshoot a GraphQL operation:
 
 ```bash
 .venv/bin/python -m graphql_assistant.cli "Troubleshoot this operation" country \
-  --graphql-call 'query CountryQuery { country { code1 } }'
+  --graphql-call 'query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }'
 ```
 
 Use OpenAI instead of Ollama:
 
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.2 \
-.venv/bin/python -m graphql_assistant.cli "Generate a sample query" country
+LLM_PROVIDER=openai OPENAI_API_KEY=your-api-key OPENAI_MODEL=gpt-5.4 \
+.venv/bin/python -m graphql_assistant.cli "Troubleshoot this operation" country \
+  --graphql-call 'query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }'
+
 ```
 
 ## API
@@ -129,7 +131,7 @@ curl -X POST http://localhost:8080/assistant \
   --data '{
     "goal": "Troubleshoot this GraphQL operation",
     "root_field": "country",
-    "graphql_call": "query CountryQuery($code: ID!) { country(code: $code) { code1 name } }"
+    "graphql_call": "query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }"
   }'
 ```
 

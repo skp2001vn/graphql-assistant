@@ -123,7 +123,7 @@ class GraphQLAssistantAgentTest(unittest.TestCase):
         self.assertIsInstance(result.output, TroubleshootingResult)
 
     def test_graphql_call_does_not_force_troubleshooting_intent(self) -> None:
-        graphql_call = "query CountryQuery($code: ID!) { country(code: $code) { code } }"
+        graphql_call = "query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }"
         planner = FakePlanner("generate_sample", "The user asked for a fresh sample query.")
         sample_tool = FakeSampleTool()
         troubleshooting_tool = FakeTroubleshootingTool()

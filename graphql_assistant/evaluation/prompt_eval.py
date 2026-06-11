@@ -122,8 +122,20 @@ DEFAULT_ASSISTANT_CASES = (
         graphql_call="""
 query CountryQuery($code: ID!) {
   country(code: $code) {
-    code1
+    code
     name
+    native
+    emoji1
+    capital
+    currency
+    continent {
+      code
+      name
+    }
+    languages {
+      code
+      name
+    }
   }
 }
 """,
@@ -134,7 +146,7 @@ query CountryQuery($code: ID!) {
         name="assistant rejects unsupported goal",
         goal="sdfdsfdf",
         root_field="country",
-        graphql_call="query CountryQuery($code: ID!) { country(code: $code) { code name } }",
+        graphql_call="query CountryQuery($code: ID!) { country(code: $code) { code name native emoji1 capital currency continent { code name } languages { code name } } }",
         expected_intent="unsupported",
         expected_error_text="Assistant goal must ask to generate a sample GraphQL operation or troubleshoot a GraphQL operation.",
     ),
