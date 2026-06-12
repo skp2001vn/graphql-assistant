@@ -1,11 +1,10 @@
 # GraphQL Assistant
 
-Generates and troubleshoots GraphQL query/mutation from local schema `*.graphql` files located in the `resources/` folder.
+The application works from local schema .graphql files in `resources/` and
+exposes one assistant surface, `/assistant`, for two workflows:
 
-The application exposes one assistant surface, `/assistant`, and supports workflows:
-
-- generate a sample GraphQL call for a query/mutation
-- troubleshoot a submitted GraphQL query/mutation against the active schema
+- generate a sample GraphQL query or mutation
+- troubleshoot a submitted GraphQL query or mutation against the active schema
 - generate mock data and documentation: future extension.
 
 The application supports OpenAI API and local Ollama. By default, the model is local Ollama `qwen3:8b`.
