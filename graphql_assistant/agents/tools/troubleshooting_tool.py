@@ -18,39 +18,23 @@ from graphql_assistant.rag.vector_store import SchemaVectorStore
 
 
 TROUBLESHOOTING_SYSTEM_PROMPT = (
-    "You troubleshoot GraphQL operations using only the provided validation issues and schema context. "
-    "Your response must contain exactly two sections in this order: DETAIL, then SUGGESTION. "
-    "Each section must be a fenced code block. DETAIL is required and must not be empty. "
-    "SUGGESTION is required and must contain the full corrected GraphQL operation. Do not return JSON. "
-    "Do not return bullets outside the fenced blocks. Do not add explanations outside the fenced blocks. "
-    "Do not invent schema fields, arguments, types, or extra issues. Preserve submitted fields unless a "
-    "validation issue explicitly says they are invalid. For syntax errors, fix only GraphQL structure."
+    "You fix GraphQL operations using only the provided validation issues and schema context. "
+    "Return exactly two fenced sections: DETAIL with 1-3 short correction lines, then SUGGESTION "
+    "with the full corrected GraphQL operation. Do not return JSON or text outside those sections. "
+    "Preserve valid submitted fields. Do not invent schema fields, arguments, types, or extra issues. "
+    "For syntax errors, fix only GraphQL structure."
 )
 
-TROUBLESHOOTING_PROMPT_TEMPLATE = """You must return exactly this format and nothing else:
+TROUBLESHOOTING_PROMPT_TEMPLATE = """Return format:
 DETAIL:
 ```text
-A short explanation of the correction. This block is required and must not be empty.
+Short correction detail.
 ```
 
 SUGGESTION:
 ```graphql
 Full corrected GraphQL operation.
 ```
-
-DETAIL rules:
-- Write 1 to 3 short natural-language lines.
-- Explain the correction, not the schema.
-- Do not copy the raw validation issue verbatim.
-- Do not include GraphQL code in DETAIL.
-
-SUGGESTION rules:
-- Return the full corrected operation, not only the changed field.
-- Use "Did you mean ..." from validation issues when available.
-- Preserve valid submitted fields.
-- For syntax errors, fix only GraphQL structure such as braces, parentheses, colons, commas, and variable syntax.
-- Do not treat selected response fields as arguments.
-- Do not replace a nested object field with a similar root Query field.
 
 Root field:
 {root_field}

@@ -101,6 +101,40 @@ query CountryQuery($code: ID!) {
         self.assertIn("country", result.suggestion)
         self.assertEqual(["Troubleshoot GraphQL Query or Mutation root field country"], schema_context_provider.requests)
 
+    def test_troubleshoot_prompt_keeps_format_contract_concise(self) -> None:
+        llm_client = FakeLLMClient(
+            """
+DETAIL:
+```text
+Use the schema root field country.
+```
+
+SUGGESTION:
+```graphql
+query CountryQuery($code: ID!) { country(code: $code) { code } }
+```
+"""
+        )
+        tool = TroubleshootingTool(
+            settings=self.settings,
+            llm_client=llm_client,
+            llm_pre_warmer=FakeLLMPreWarmer(),
+            schema_context_provider=FakeSchemaContextProvider(),
+        )
+
+        tool.troubleshoot(
+            "country",
+            'query CountyQuery($code: ID!) { county(code: $code) { code } }',
+        )
+
+        prompt = llm_client.prompts[0]
+        self.assertIn("Return format:", prompt)
+        self.assertIn("Validation issues:", prompt)
+        self.assertIn("Schema context:", prompt)
+        self.assertIn("Submitted operation:", prompt)
+        self.assertNotIn("DETAIL rules:", prompt)
+        self.assertNotIn("SUGGESTION rules:", prompt)
+
     def test_troubleshoot_skips_prewarm_when_call_is_already_valid(self) -> None:
         llm_client = FakeLLMClient("unused")
         pre_warmer = FakeLLMPreWarmer()
