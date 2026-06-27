@@ -9,6 +9,8 @@ exposes one assistant surface, `/assistant`, for two workflows:
 
 The application supports OpenAI API and local Ollama. By default, the model is local Ollama `qwen3:8b`.
 
+Compared with the Java-based [Agentic GraphQL Assistant](https://github.com/skp2001vn/agentic-graphql-assistant), which emphasizes bounded agentic tool use with LangChain4j and backed by deterministic GraphQL verification, this application emphasizes embedding-based RAG and inference optimization.
+
 ## AI Concepts Covered 
 
 - RAG: retrieves schema context before generation.
